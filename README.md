@@ -12,6 +12,8 @@ A toolkit for fetching, aggregating, and analyzing DNS query logs from AdGuard H
 - **Web Dashboard**: Interactive UI for browsing and filtering summary data with sortable tables
 - **REST API**: FastAPI-based endpoints for programmatic access
 
+![](https://github.com/lopperman/AdGuardHome_DNSQueryAnalyzer/blob/main/images/ClientSummary.png?raw=true)
+
 ## Prerequisites
 
 - Python 3.10+
