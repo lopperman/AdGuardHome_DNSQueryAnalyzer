@@ -1,0 +1,28 @@
+! Lopperman Home Network - AdGuard DNS Allowlist
+! https://github.com/lopperman/...
+! Last updated: 2025-12-05
+
+! =====================================================
+! Amazon Kinesis Video - Security Cameras
+! =====================================================
+@@||kinesisvideo.us-west-2.amazonaws.com^
+@@||kinesisvideo.us-east-1.amazonaws.com^
+@@||iot.us-west-2.amazonaws.com^
+@@||iot.us-east-1.amazonaws.com^
+
+! =====================================================
+! NTP / Time Servers
+! =====================================================
+@@||pool.ntp.org^
+@@||ntp.org^
+@@||time.google.com^
+@@||time.g.aaplimg.com^
+@@||ntp.wiz.world^
+@@||ntp.aliyun.com^
+
+! =====================================================
+! Network Connectivity Checks
+! =====================================================
+@@||dns.msftncsi.com^
+@@||msftncsi.com^
+@@||msftconnecttest.com^

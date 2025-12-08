@@ -1,0 +1,780 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AdGuard Home Log Summary</title>
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 20px;
+        }
+        .actions {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+        .actions button {
+            padding: 10px 20px;
+            font-size: 14px;
+            cursor: pointer;
+            border: none;
+            border-radius: 4px;
+            background: #4a90d9;
+            color: white;
+            transition: background 0.2s;
+        }
+        .actions button:hover {
+            background: #357abd;
+        }
+        .actions button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        .actions input[type="date"] {
+            padding: 8px 12px;
+            font-size: 14px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        .actions label {
+            font-size: 14px;
+            color: #666;
+        }
+        .status {
+            padding: 10px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+            display: none;
+        }
+        .status.success {
+            background: #d4edda;
+            color: #155724;
+            display: block;
+        }
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+            display: block;
+        }
+        .status.loading {
+            background: #fff3cd;
+            color: #856404;
+            display: block;
+        }
+        .tabs {
+            display: flex;
+            gap: 5px;
+            margin-bottom: 20px;
+        }
+        .tab {
+            padding: 10px 20px;
+            background: #ddd;
+            border: none;
+            border-radius: 4px 4px 0 0;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background 0.2s;
+        }
+        .tab:hover {
+            background: #ccc;
+        }
+        .tab.active {
+            background: white;
+            font-weight: bold;
+        }
+        .panel {
+            background: white;
+            padding: 20px;
+            border-radius: 0 4px 4px 4px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            display: none;
+        }
+        .panel.active {
+            display: block;
+        }
+        .filters {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            margin-bottom: 20px;
+            padding: 15px;
+            background: #f9f9f9;
+            border-radius: 4px;
+        }
+        .filter-group {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+        .filter-group label {
+            font-size: 12px;
+            color: #666;
+            font-weight: 500;
+        }
+        .filter-group input, .filter-group select {
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+            min-width: 120px;
+        }
+        .filter-group input:focus, .filter-group select:focus {
+            outline: none;
+            border-color: #4a90d9;
+        }
+        .filter-actions {
+            display: flex;
+            gap: 10px;
+            align-items: flex-end;
+        }
+        .filter-actions button {
+            padding: 8px 16px;
+            font-size: 14px;
+            cursor: pointer;
+            border: none;
+            border-radius: 4px;
+        }
+        .filter-actions .search-btn {
+            background: #28a745;
+            color: white;
+        }
+        .filter-actions .search-btn:hover {
+            background: #218838;
+        }
+        .filter-actions .clear-btn {
+            background: #6c757d;
+            color: white;
+        }
+        .filter-actions .clear-btn:hover {
+            background: #5a6268;
+        }
+        .results-info {
+            margin-bottom: 10px;
+            color: #666;
+            font-size: 14px;
+        }
+        .table-container {
+            overflow-x: auto;
+            max-height: 600px;
+            overflow-y: auto;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+        th, td {
+            padding: 10px;
+            text-align: left;
+            border-bottom: 1px solid #eee;
+        }
+        th {
+            background: #f5f5f5;
+            font-weight: 600;
+            cursor: pointer;
+            user-select: none;
+            position: sticky;
+            top: 0;
+            z-index: 1;
+        }
+        th:hover {
+            background: #e9e9e9;
+        }
+        th .sort-indicator {
+            margin-left: 5px;
+            opacity: 0.3;
+        }
+        th.sorted .sort-indicator {
+            opacity: 1;
+        }
+        tr:hover {
+            background: #f9f9f9;
+        }
+        .filtered-true {
+            color: #dc3545;
+            font-weight: 500;
+        }
+        .filtered-false {
+            color: #28a745;
+        }
+        .domain-cell {
+            max-width: 400px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .count-cell {
+            text-align: right;
+            font-family: monospace;
+        }
+        .loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(255,255,255,0.8);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+        .loading-overlay.active {
+            display: flex;
+        }
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #4a90d9;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>AdGuard Home Log Summary</h1>
+
+        <div class="actions">
+            <button id="updateLogsBtn" onclick="updateLogs()">Update Logs</button>
+            <button id="buildSummaryBtn" onclick="buildSummary()">Build Summary</button>
+            <label for="fromDate">From Date:</label>
+            <input type="date" id="fromDate">
+        </div>
+
+        <div id="status" class="status"></div>
+
+        <div class="tabs">
+            <button class="tab active" onclick="switchTab('client')">Client Summary</button>
+            <button class="tab" onclick="switchTab('domain')">Domain Summary</button>
+            <button class="tab" onclick="switchTab('baseDomain')">Base Domain Summary</button>
+        </div>
+
+        <!-- Client Summary Panel -->
+        <div id="client-panel" class="panel active">
+            <div class="filters">
+                <div class="filter-group">
+                    <label>Domain (QH)</label>
+                    <input type="text" id="client-qh" placeholder="Contains...">
+                </div>
+                <div class="filter-group">
+                    <label>IP Address</label>
+                    <input type="text" id="client-ip" placeholder="Exact match">
+                </div>
+                <div class="filter-group">
+                    <label>Client Name</label>
+                    <input type="text" id="client-client" placeholder="Exact match">
+                </div>
+                <div class="filter-group">
+                    <label>Query Type (QT)</label>
+                    <input type="text" id="client-qt" placeholder="e.g., A, AAAA">
+                </div>
+                <div class="filter-group">
+                    <label>Protocol (CP)</label>
+                    <input type="text" id="client-cp" placeholder="e.g., dns">
+                </div>
+                <div class="filter-group">
+                    <label>Is Filtered</label>
+                    <select id="client-isFiltered">
+                        <option value="">Any</option>
+                        <option value="true">Yes (Blocked)</option>
+                        <option value="false">No (Allowed)</option>
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <label>Count >=</label>
+                    <input type="number" id="client-countGte" min="0">
+                </div>
+                <div class="filter-group">
+                    <label>Count <=</label>
+                    <input type="number" id="client-countLte" min="0">
+                </div>
+                <div class="filter-group">
+                    <label>Max Count >=</label>
+                    <input type="number" id="client-maxCountGte" min="0">
+                </div>
+                <div class="filter-group">
+                    <label>Max Count <=</label>
+                    <input type="number" id="client-maxCountLte" min="0">
+                </div>
+                <div class="filter-actions">
+                    <button class="search-btn" onclick="searchData('client')">Search</button>
+                    <button class="clear-btn" onclick="clearFilters('client')">Clear</button>
+                </div>
+            </div>
+            <div class="results-info" id="client-results-info"></div>
+            <div class="table-container">
+                <table id="client-table">
+                    <thead>
+                        <tr>
+                            <th onclick="sortTable('client', 'IP')">IP <span class="sort-indicator">&#9650;</span></th>
+                            <th onclick="sortTable('client', 'client')">Client <span class="sort-indicator">&#9650;</span></th>
+                            <th onclick="sortTable('client', 'QH')">Domain (QH) <span class="sort-indicator">&#9650;</span></th>
+                            <th onclick="sortTable('client', 'QT')">Type <span class="sort-indicator">&#9650;</span></th>
+                            <th onclick="sortTable('client', 'CP')">Protocol <span class="sort-indicator">&#9650;</span></th>
+                            <th onclick="sortTable('client', 'IsFiltered')">Filtered <span class="sort-indicator">&#9650;</span></th>
+                            <th onclick="sortTable('client', 'count')">Count <span class="sort-indicator">&#9650;</span></th>
+                            <th onclick="sortTable('client', 'maxCount')">Max/Day <span class="sort-indicator">&#9650;</span></th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Domain Summary Panel -->
+        <div id="domain-panel" class="panel">
+            <div class="filters">
+                <div class="filter-group">
+                    <label>Domain (QH)</label>
+                    <input type="text" id="domain-qh" placeholder="Contains...">
+                </div>
+                <div class="filter-group">
+                    <label>Query Type (QT)</label>
+                    <input type="text" id="domain-qt" placeholder="e.g., A, AAAA">
+                </div>
+                <div class="filter-group">
+                    <label>Protocol (CP)</label>
+                    <input type="text" id="domain-cp" placeholder="e.g., dns">
+                </div>
+                <div class="filter-group">
+                    <label>Is Filtered</label>
+                    <select id="domain-isFiltered">
+                        <option value="">Any</option>
+                        <option value="true">Yes (Blocked)</option>
+                        <option value="false">No (Allowed)</option>
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <label>Count >=</label>
+                    <input type="number" id="domain-countGte" min="0">
+                </div>
+                <div class="filter-group">
+                    <label>Count <=</label>
+                    <input type="number" id="domain-countLte" min="0">
+                </div>
+                <div class="filter-group">
+                    <label>Max Count >=</label>
+                    <input type="number" id="domain-maxCountGte" min="0">
+                </div>
+                <div class="filter-group">
+                    <label>Max Count <=</label>
+                    <input type="number" id="domain-maxCountLte" min="0">
+                </div>
+                <div class="filter-actions">
+                    <button class="search-btn" onclick="searchData('domain')">Search</button>
+                    <button class="clear-btn" onclick="clearFilters('domain')">Clear</button>
+                </div>
+            </div>
+            <div class="results-info" id="domain-results-info"></div>
+            <div class="table-container">
+                <table id="domain-table">
+                    <thead>
+                        <tr>
+                            <th onclick="sortTable('domain', 'QH')">Domain (QH) <span class="sort-indicator">&#9650;</span></th>
+                            <th onclick="sortTable('domain', 'QT')">Type <span class="sort-indicator">&#9650;</span></th>
+                            <th onclick="sortTable('domain', 'CP')">Protocol <span class="sort-indicator">&#9650;</span></th>
+                            <th onclick="sortTable('domain', 'IsFiltered')">Filtered <span class="sort-indicator">&#9650;</span></th>
+                            <th onclick="sortTable('domain', 'count')">Count <span class="sort-indicator">&#9650;</span></th>
+                            <th onclick="sortTable('domain', 'maxCount')">Max/Day <span class="sort-indicator">&#9650;</span></th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Base Domain Summary Panel -->
+        <div id="baseDomain-panel" class="panel">
+            <div class="filters">
+                <div class="filter-group">
+                    <label>Base Domain (QH)</label>
+                    <input type="text" id="baseDomain-qh" placeholder="Contains...">
+                </div>
+                <div class="filter-group">
+                    <label>Query Type (QT)</label>
+                    <input type="text" id="baseDomain-qt" placeholder="e.g., A, AAAA">
+                </div>
+                <div class="filter-group">
+                    <label>Protocol (CP)</label>
+                    <input type="text" id="baseDomain-cp" placeholder="e.g., dns">
+                </div>
+                <div class="filter-group">
+                    <label>Is Filtered</label>
+                    <select id="baseDomain-isFiltered">
+                        <option value="">Any</option>
+                        <option value="true">Yes (Blocked)</option>
+                        <option value="false">No (Allowed)</option>
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <label>Count >=</label>
+                    <input type="number" id="baseDomain-countGte" min="0">
+                </div>
+                <div class="filter-group">
+                    <label>Count <=</label>
+                    <input type="number" id="baseDomain-countLte" min="0">
+                </div>
+                <div class="filter-group">
+                    <label>Max Count >=</label>
+                    <input type="number" id="baseDomain-maxCountGte" min="0">
+                </div>
+                <div class="filter-group">
+                    <label>Max Count <=</label>
+                    <input type="number" id="baseDomain-maxCountLte" min="0">
+                </div>
+                <div class="filter-actions">
+                    <button class="search-btn" onclick="searchData('baseDomain')">Search</button>
+                    <button class="clear-btn" onclick="clearFilters('baseDomain')">Clear</button>
+                </div>
+            </div>
+            <div class="results-info" id="baseDomain-results-info"></div>
+            <div class="table-container">
+                <table id="baseDomain-table">
+                    <thead>
+                        <tr>
+                            <th onclick="sortTable('baseDomain', 'QH')">Base Domain (QH) <span class="sort-indicator">&#9650;</span></th>
+                            <th onclick="sortTable('baseDomain', 'QT')">Type <span class="sort-indicator">&#9650;</span></th>
+                            <th onclick="sortTable('baseDomain', 'CP')">Protocol <span class="sort-indicator">&#9650;</span></th>
+                            <th onclick="sortTable('baseDomain', 'IsFiltered')">Filtered <span class="sort-indicator">&#9650;</span></th>
+                            <th onclick="sortTable('baseDomain', 'count')">Count <span class="sort-indicator">&#9650;</span></th>
+                            <th onclick="sortTable('baseDomain', 'maxCount')">Max/Day <span class="sort-indicator">&#9650;</span></th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div class="loading-overlay" id="loadingOverlay">
+        <div class="spinner"></div>
+    </div>
+
+    <script>
+        // Store data and sort state for each panel
+        const state = {
+            client: { data: [], sortColumn: 'count', sortAsc: false },
+            domain: { data: [], sortColumn: 'count', sortAsc: false },
+            baseDomain: { data: [], sortColumn: 'count', sortAsc: false }
+        };
+
+        const API_ENDPOINTS = {
+            client: '/api/query-log-summary',
+            domain: '/api/domain-summary',
+            baseDomain: '/api/base-domain-summary'
+        };
+
+        function showStatus(message, type) {
+            const status = document.getElementById('status');
+            status.textContent = message;
+            status.className = 'status ' + type;
+            if (type !== 'loading') {
+                setTimeout(() => {
+                    status.className = 'status';
+                }, 5000);
+            }
+        }
+
+        function showLoading(show) {
+            document.getElementById('loadingOverlay').classList.toggle('active', show);
+        }
+
+        async function updateLogs() {
+            const btn = document.getElementById('updateLogsBtn');
+            btn.disabled = true;
+            showStatus('Fetching logs from router...', 'loading');
+            showLoading(true);
+
+            try {
+                const response = await fetch('/api/update-logs', { method: 'POST' });
+                const result = await response.json();
+
+                if (result.success) {
+                    showStatus(`Success: ${result.message}`, 'success');
+                } else {
+                    showStatus(`Error: ${result.message}`, 'error');
+                }
+            } catch (error) {
+                showStatus(`Error: ${error.message}`, 'error');
+            } finally {
+                btn.disabled = false;
+                showLoading(false);
+            }
+        }
+
+        async function buildSummary() {
+            const btn = document.getElementById('buildSummaryBtn');
+            btn.disabled = true;
+
+            const fromDate = document.getElementById('fromDate').value;
+            const url = fromDate
+                ? `/api/build-summary?from_date=${fromDate}`
+                : '/api/build-summary';
+
+            showStatus('Building summary...', 'loading');
+            showLoading(true);
+
+            try {
+                const response = await fetch(url, { method: 'POST' });
+                const result = await response.json();
+
+                if (result.success) {
+                    showStatus(`Success: ${result.message} (${result.client_records} client, ${result.domain_records} domain, ${result.base_domain_records} base domain records)`, 'success');
+                    // Refresh current tab data
+                    const activeTab = document.querySelector('.tab.active').textContent.toLowerCase();
+                    if (activeTab.includes('client')) searchData('client');
+                    else if (activeTab.includes('base')) searchData('baseDomain');
+                    else searchData('domain');
+                } else {
+                    showStatus(`Error: ${result.message}`, 'error');
+                }
+            } catch (error) {
+                showStatus(`Error: ${error.message}`, 'error');
+            } finally {
+                btn.disabled = false;
+                showLoading(false);
+            }
+        }
+
+        function switchTab(tabName) {
+            // Update tab buttons
+            document.querySelectorAll('.tab').forEach(tab => tab.classList.remove('active'));
+            event.target.classList.add('active');
+
+            // Update panels
+            document.querySelectorAll('.panel').forEach(panel => panel.classList.remove('active'));
+            document.getElementById(`${tabName}-panel`).classList.add('active');
+
+            // Load data if empty
+            if (state[tabName].data.length === 0) {
+                searchData(tabName);
+            }
+        }
+
+        function getFilterParams(tabName) {
+            const params = new URLSearchParams();
+
+            const qh = document.getElementById(`${tabName}-qh`).value.trim();
+            if (qh) params.append('qh', qh);
+
+            const qt = document.getElementById(`${tabName}-qt`).value.trim();
+            if (qt) params.append('qt', qt);
+
+            const cp = document.getElementById(`${tabName}-cp`).value.trim();
+            if (cp) params.append('cp', cp);
+
+            const isFiltered = document.getElementById(`${tabName}-isFiltered`).value;
+            if (isFiltered) params.append('is_filtered', isFiltered);
+
+            const countGte = document.getElementById(`${tabName}-countGte`).value;
+            if (countGte) params.append('count_gte', countGte);
+
+            const countLte = document.getElementById(`${tabName}-countLte`).value;
+            if (countLte) params.append('count_lte', countLte);
+
+            const maxCountGte = document.getElementById(`${tabName}-maxCountGte`).value;
+            if (maxCountGte) params.append('max_count_gte', maxCountGte);
+
+            const maxCountLte = document.getElementById(`${tabName}-maxCountLte`).value;
+            if (maxCountLte) params.append('max_count_lte', maxCountLte);
+
+            // Client-specific filters
+            if (tabName === 'client') {
+                const ip = document.getElementById(`${tabName}-ip`).value.trim();
+                if (ip) params.append('ip', ip);
+
+                const client = document.getElementById(`${tabName}-client`).value.trim();
+                if (client) params.append('client', client);
+            }
+
+            return params;
+        }
+
+        async function searchData(tabName) {
+            const params = getFilterParams(tabName);
+            const url = `${API_ENDPOINTS[tabName]}?${params.toString()}`;
+
+            showLoading(true);
+
+            try {
+                const response = await fetch(url);
+                const result = await response.json();
+
+                state[tabName].data = result.records;
+                sortAndRender(tabName);
+
+                document.getElementById(`${tabName}-results-info`).textContent =
+                    `Showing ${result.total.toLocaleString()} records`;
+            } catch (error) {
+                showStatus(`Error loading data: ${error.message}`, 'error');
+            } finally {
+                showLoading(false);
+            }
+        }
+
+        function clearFilters(tabName) {
+            document.getElementById(`${tabName}-qh`).value = '';
+            document.getElementById(`${tabName}-qt`).value = '';
+            document.getElementById(`${tabName}-cp`).value = '';
+            document.getElementById(`${tabName}-isFiltered`).value = '';
+            document.getElementById(`${tabName}-countGte`).value = '';
+            document.getElementById(`${tabName}-countLte`).value = '';
+            document.getElementById(`${tabName}-maxCountGte`).value = '';
+            document.getElementById(`${tabName}-maxCountLte`).value = '';
+
+            if (tabName === 'client') {
+                document.getElementById(`${tabName}-ip`).value = '';
+                document.getElementById(`${tabName}-client`).value = '';
+            }
+
+            searchData(tabName);
+        }
+
+        function sortTable(tabName, column) {
+            const st = state[tabName];
+
+            if (st.sortColumn === column) {
+                st.sortAsc = !st.sortAsc;
+            } else {
+                st.sortColumn = column;
+                st.sortAsc = true;
+            }
+
+            sortAndRender(tabName);
+        }
+
+        function sortAndRender(tabName) {
+            const st = state[tabName];
+            const data = [...st.data];
+
+            // Sort data
+            data.sort((a, b) => {
+                let aVal = a[st.sortColumn];
+                let bVal = b[st.sortColumn];
+
+                // Handle different types
+                if (typeof aVal === 'number' && typeof bVal === 'number') {
+                    return st.sortAsc ? aVal - bVal : bVal - aVal;
+                }
+                if (typeof aVal === 'boolean' && typeof bVal === 'boolean') {
+                    return st.sortAsc ? (aVal ? 1 : -1) - (bVal ? 1 : -1) : (bVal ? 1 : -1) - (aVal ? 1 : -1);
+                }
+
+                // String comparison
+                aVal = String(aVal || '').toLowerCase();
+                bVal = String(bVal || '').toLowerCase();
+                if (aVal < bVal) return st.sortAsc ? -1 : 1;
+                if (aVal > bVal) return st.sortAsc ? 1 : -1;
+                return 0;
+            });
+
+            // Update sort indicators
+            const table = document.getElementById(`${tabName}-table`);
+            table.querySelectorAll('th').forEach(th => {
+                th.classList.remove('sorted');
+                const indicator = th.querySelector('.sort-indicator');
+                indicator.innerHTML = '&#9650;';
+            });
+
+            const headers = table.querySelectorAll('th');
+            const columnIndex = getColumnIndex(tabName, st.sortColumn);
+            if (columnIndex >= 0) {
+                headers[columnIndex].classList.add('sorted');
+                headers[columnIndex].querySelector('.sort-indicator').innerHTML =
+                    st.sortAsc ? '&#9650;' : '&#9660;';
+            }
+
+            // Render table
+            renderTable(tabName, data);
+        }
+
+        function getColumnIndex(tabName, column) {
+            const columns = {
+                client: ['IP', 'client', 'QH', 'QT', 'CP', 'IsFiltered', 'count', 'maxCount'],
+                domain: ['QH', 'QT', 'CP', 'IsFiltered', 'count', 'maxCount'],
+                baseDomain: ['QH', 'QT', 'CP', 'IsFiltered', 'count', 'maxCount']
+            };
+            return columns[tabName].indexOf(column);
+        }
+
+        function renderTable(tabName, data) {
+            const tbody = document.querySelector(`#${tabName}-table tbody`);
+            tbody.innerHTML = '';
+
+            if (tabName === 'client') {
+                data.forEach(row => {
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                        <td>${escapeHtml(row.IP || '')}</td>
+                        <td>${escapeHtml(row.client || '')}</td>
+                        <td class="domain-cell" title="${escapeHtml(row.QH || '')}">${escapeHtml(row.QH || '')}</td>
+                        <td>${escapeHtml(row.QT || '')}</td>
+                        <td>${escapeHtml(row.CP || '')}</td>
+                        <td class="${row.IsFiltered ? 'filtered-true' : 'filtered-false'}">${row.IsFiltered ? 'Yes' : 'No'}</td>
+                        <td class="count-cell">${(row.count || 0).toLocaleString()}</td>
+                        <td class="count-cell">${(row.maxCount || 0).toLocaleString()}</td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+            } else {
+                data.forEach(row => {
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                        <td class="domain-cell" title="${escapeHtml(row.QH || '')}">${escapeHtml(row.QH || '')}</td>
+                        <td>${escapeHtml(row.QT || '')}</td>
+                        <td>${escapeHtml(row.CP || '')}</td>
+                        <td class="${row.IsFiltered ? 'filtered-true' : 'filtered-false'}">${row.IsFiltered ? 'Yes' : 'No'}</td>
+                        <td class="count-cell">${(row.count || 0).toLocaleString()}</td>
+                        <td class="count-cell">${(row.maxCount || 0).toLocaleString()}</td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+            }
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Load initial data
+        document.addEventListener('DOMContentLoaded', () => {
+            searchData('client');
+        });
+
+        // Allow Enter key to trigger search
+        document.querySelectorAll('.filters input').forEach(input => {
+            input.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') {
+                    const panel = input.closest('.panel');
+                    const tabName = panel.id.replace('-panel', '');
+                    searchData(tabName);
+                }
+            });
+        });
+    </script>
+</body>
+</html>
