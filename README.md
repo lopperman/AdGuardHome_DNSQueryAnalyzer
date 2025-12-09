@@ -101,15 +101,7 @@ The fetcher:
 - Updates client name mappings from DHCP leases
 - Handles log rotation automatically
 
-### Migrating Existing Data
-
-If you have existing `querylog.ndjson` data, migrate it to DuckDB:
-
-```bash
-python migrate_to_duckdb.py
-```
-
-## API Endpoints
+# API Endpoints
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
