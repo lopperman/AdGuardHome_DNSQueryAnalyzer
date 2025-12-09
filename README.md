@@ -14,6 +14,8 @@ A toolkit for fetching, aggregating, and analyzing DNS query logs from AdGuard H
 
 ![](https://github.com/lopperman/AdGuardHome_DNSQueryAnalyzer/blob/main/images/ClientSummary.png?raw=true)
 
+
+
 ## Prerequisites
 
 - Python 3.10+
@@ -84,10 +86,29 @@ Summaries are written to `AppData/Current/` and timestamped copies in `AppData/`
 Start the web server:
 
 ```bash
+# Using the start script (recommended)
+./start.sh
+
+# Or run directly
 python web_service.py
 ```
 
-Access the dashboard at http://localhost:8080
+The `start.sh` script will:
+- Check if the service is already running (and open browser if so)
+- Find an available port (8080-8099) if the default is in use
+- Start the service and open the dashboard in your browser
+
+To run in the background:
+```bash
+./start.sh &
+```
+
+To stop the service:
+```bash
+./stop.sh
+```
+
+Access the dashboard at http://localhost:8080 (or the port shown at startup)
 
 ## API Endpoints
 
@@ -120,6 +141,8 @@ AdguardHomeLogs/
 ├── fetch_logs.py          # Log fetcher script
 ├── build_log_summary.py   # Summary builder script
 ├── web_service.py         # FastAPI web service
+├── start.sh               # Start web service (handles port conflicts)
+├── stop.sh                # Stop web service
 ├── requirements.txt       # Python dependencies
 ├── static/
 │   └── index.html         # Web dashboard

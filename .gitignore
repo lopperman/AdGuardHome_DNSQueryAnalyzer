@@ -20,3 +20,7 @@ env/
 *.swp
 *.swo
 .DS_Store
+
+# Web service runtime files
+.web_service.pid
+.web_service.port
