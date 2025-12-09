@@ -17,6 +17,8 @@ A toolkit for fetching, aggregating, and analyzing DNS query logs from AdGuard H
 
 ![](https://github.com/lopperman/AdGuardHome_DNSQueryAnalyzer/blob/main/images/ClientSummary.png?raw=true)
 
+![](https://github.com/lopperman/AdGuardHome_DNSQueryAnalyzer/blob/main/images/fetch_logs.png?raw=true)
+
 
 
 ## Prerequisites
