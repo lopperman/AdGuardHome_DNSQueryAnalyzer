@@ -150,15 +150,12 @@ The fetcher:
 AdguardHomeLogs/
 ├── database.py            # DuckDB database module
 ├── fetch_logs.py          # Log fetcher script
-├── migrate_to_duckdb.py   # Migration script for existing data
 ├── web_service.py         # FastAPI web service
 ├── start.sh               # Start web service
 ├── stop.sh                # Stop web service
 ├── requirements.txt       # Python dependencies
 ├── static/
 │   └── index.html         # Web dashboard
-├── LogData/               # Legacy raw log storage
-│   └── querylog.ndjson    # (only used for migration)
 ├── AppData/
 │   ├── adguard_logs.duckdb   # DuckDB database
 │   └── logFetchHistory.json  # Fetch state (offsets, timestamps)
