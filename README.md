@@ -5,6 +5,9 @@ A toolkit for fetching, aggregating, and analyzing DNS query logs from AdGuard H
 ## Features
 
 - **Incremental Log Fetching**: Retrieves DNS query logs from AdGuard Home via SSH, tracking the last fetch timestamp to avoid duplicates
+- **Byte Offset Optimization**: Only transfers new data since last fetch using `tail -c +OFFSET`, dramatically reducing bandwidth for large log files
+- **Chunked Reading**: Large files are read in configurable chunks (default 1 MB) to avoid memory issues on the router
+- **Rotation Detection**: Automatically detects when AdGuard rotates log files and adjusts accordingly
 - **Summary Generation**: Aggregates logs into three summary views:
   - **Client Summary**: Query counts grouped by IP/client + domain
   - **Domain Summary**: Query counts grouped by full domain
@@ -49,6 +52,10 @@ A toolkit for fetching, aggregating, and analyzing DNS query logs from AdGuard H
    # Web server settings (optional)
    WEB_HOST=0.0.0.0
    WEB_PORT=8080
+
+   # Fetch settings (optional)
+   # Maximum bytes to read in a single SSH operation (default: 1MB)
+   FETCH_CHUNK_SIZE=1048576
    ```
 
 ## Usage
@@ -66,6 +73,8 @@ python fetch_logs.py -y
 ```
 
 Logs are stored incrementally in `LogData/querylog.ndjson`.
+
+The fetcher uses byte offset tracking to only transfer new data since the last fetch. For example, if a 50 MB log file has grown by 500 KB since the last fetch, only the new 500 KB is transferred. The fetch state is stored in `AppData/logFetchHistory.json`.
 
 ### Building Summaries
 
@@ -148,8 +157,9 @@ AdguardHomeLogs/
 │   └── index.html         # Web dashboard
 ├── LogData/               # Raw log storage (created automatically)
 │   └── querylog.ndjson
-├── AppData/               # Summary files (created automatically)
+├── AppData/               # Application data (created automatically)
 │   ├── Current/           # Latest summaries
+│   ├── logFetchHistory.json  # Fetch state (offsets, timestamps)
 │   └── *.json             # Timestamped summaries
 └── .env                   # Configuration (not committed)
 ```
@@ -166,6 +176,26 @@ AdguardHomeLogs/
 | `IsFiltered` | Whether the query was blocked |
 | `count` | Total query count |
 | `maxCount` | Maximum queries in a single day |
+
+## AdGuard Home Configuration Notes
+
+### Query Log Buffering
+
+AdGuard Home buffers queries in memory before writing to disk. The `size_memory` setting in `AdGuardHome.yaml` controls how many entries are buffered (default: 1000). Queries won't appear in `querylog.json` until the buffer fills or the service restarts.
+
+With ~90 queries/minute, a 1000-entry buffer takes ~11 minutes to flush. Lower `size_memory` for faster disk writes:
+
+| size_memory | Approx. flush time |
+|-------------|-------------------|
+| 1000 | ~11 minutes |
+| 500 | ~5.5 minutes |
+| 100 | ~1 minute |
+
+### Log Rotation
+
+AdGuard keeps one backup file (`querylog.json.1`). The `interval` setting controls rotation frequency. Actual retention is ~2x the interval (current + backup).
+
+This tool handles rotation automatically by tracking the first timestamp in each file to detect when rotation occurs.
 
 ## License
 

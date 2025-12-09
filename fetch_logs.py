@@ -45,6 +45,10 @@ SSH_USER = ENV.get("ROUTER_SSH_USER", "")
 # AdGuard Home paths from .env
 ADGUARD_QUERY_LOG = ENV.get("ADGUARD_QUERY_LOG", "")
 
+# Fetch settings
+# Default 5MB chunk size for reading remote files
+FETCH_CHUNK_SIZE = int(ENV.get("FETCH_CHUNK_SIZE", "5242880"))
+
 
 def validate_config() -> bool:
     """Validate that required configuration is present."""
@@ -113,63 +117,243 @@ def ssh_command(cmd: str) -> tuple[int, str, str]:
 def fetch_remote_file(remote_path: str) -> Optional[str]:
     """Fetch contents of a remote file via SSH."""
     returncode, stdout, _ = ssh_command(f"cat '{remote_path}' 2>/dev/null")
-    if returncode == 0:
+    if returncode == 0 and stdout.strip():
         return stdout
     return None
+
+
+def check_remote_file_exists(remote_path: str) -> bool:
+    """Check if a remote file exists via SSH."""
+    returncode, _, _ = ssh_command(f"test -f '{remote_path}'")
+    return returncode == 0
+
+
+def get_remote_file_size(remote_path: str) -> Optional[int]:
+    """Get the size of a remote file in bytes via SSH."""
+    returncode, stdout, _ = ssh_command(f"wc -c < '{remote_path}' 2>/dev/null")
+    if returncode == 0 and stdout.strip():
+        try:
+            return int(stdout.strip())
+        except ValueError:
+            pass
+    return None
+
+
+def get_remote_first_line(remote_path: str) -> Optional[str]:
+    """Get the first line of a remote file via SSH."""
+    returncode, stdout, _ = ssh_command(f"head -1 '{remote_path}' 2>/dev/null")
+    if returncode == 0 and stdout.strip():
+        return stdout.strip()
+    return None
+
+
+def get_first_timestamp(line: str, timestamp_field: str) -> Optional[str]:
+    """Extract timestamp from a JSON line."""
+    try:
+        entry = json.loads(line)
+        return entry.get(timestamp_field)
+    except json.JSONDecodeError:
+        return None
+
+
+def fetch_remote_file_from_offset(remote_path: str, offset: int) -> Optional[str]:
+    """Fetch contents of a remote file starting from a byte offset via SSH."""
+    returncode, stdout, _ = ssh_command(f"tail -c +{offset + 1} '{remote_path}' 2>/dev/null")
+    if returncode == 0 and stdout:
+        return stdout
+    return None
+
+
+def fetch_remote_chunk(remote_path: str, offset: int, size: int) -> Optional[str]:
+    """
+    Fetch a chunk of a remote file via SSH.
+
+    Args:
+        remote_path: Path to the remote file
+        offset: Byte offset to start reading from
+        size: Number of bytes to read
+
+    Returns:
+        The chunk content as a string, or None if read failed
+    """
+    # tail -c +N gives bytes from position N to end
+    # head -c M limits output to M bytes
+    cmd = f"tail -c +{offset + 1} '{remote_path}' 2>/dev/null | head -c {size}"
+    returncode, stdout, _ = ssh_command(cmd)
+    if returncode == 0 and stdout:
+        return stdout
+    return None
+
+
+def fetch_file_in_chunks(
+    remote_path: str,
+    offset: int,
+    file_size: int,
+    timestamp_field: str,
+    after_timestamp: Optional[str],
+    chunk_size: int = FETCH_CHUNK_SIZE
+) -> tuple[list[dict], int]:
+    """
+    Fetch a remote file in chunks, handling partial lines at boundaries.
+
+    Args:
+        remote_path: Path to the remote file
+        offset: Byte offset to start reading from
+        file_size: Total size of the remote file
+        timestamp_field: JSON field containing the timestamp
+        after_timestamp: Only include entries after this timestamp
+        chunk_size: Maximum bytes to read per chunk
+
+    Returns:
+        Tuple of (list of parsed entries, total bytes consumed)
+    """
+    all_entries = []
+    current_offset = offset
+    total_bytes_consumed = 0
+    partial_line = ""  # Carries incomplete line between chunks
+    is_first_chunk = True
+    bytes_to_read = file_size - offset
+
+    chunk_num = 0
+    total_chunks = (bytes_to_read + chunk_size - 1) // chunk_size  # Ceiling division
+
+    while current_offset < file_size:
+        chunk_num += 1
+        read_size = min(chunk_size, file_size - current_offset)
+
+        if total_chunks > 1:
+            print(f"      Reading chunk {chunk_num}/{total_chunks} ({read_size:,} bytes)")
+
+        chunk = fetch_remote_chunk(remote_path, current_offset, read_size)
+        if chunk is None:
+            print(f"      Error reading chunk at offset {current_offset}")
+            break
+
+        # Prepend any partial line from previous chunk
+        content = partial_line + chunk
+        partial_line = ""
+
+        # Split into lines
+        lines = content.split("\n")
+
+        # If chunk doesn't end with newline, last element is partial
+        # (unless we're at end of file)
+        is_last_chunk = (current_offset + read_size >= file_size)
+        if not is_last_chunk and lines:
+            partial_line = lines[-1]
+            lines = lines[:-1]
+
+        # Parse lines
+        for i, line in enumerate(lines):
+            if not line.strip():
+                continue
+
+            try:
+                entry = json.loads(line)
+                entry_ts = entry.get(timestamp_field, "")
+
+                # Filter by timestamp
+                if after_timestamp and entry_ts <= after_timestamp:
+                    continue
+
+                all_entries.append(entry)
+            except json.JSONDecodeError:
+                # First line of first chunk may be partial (resumed mid-line)
+                if is_first_chunk and i == 0:
+                    print(f"      Discarded partial first record (resumed mid-line)")
+                # Last line of last chunk may be partial (write in progress)
+                elif is_last_chunk and i == len(lines) - 1:
+                    print(f"      Discarded partial last record (truncated during read)")
+                else:
+                    print(f"      Warning: Skipped malformed entry in chunk {chunk_num}")
+                continue
+
+        # Update position
+        chunk_bytes = len(chunk.encode('utf-8'))
+        current_offset += chunk_bytes
+        total_bytes_consumed += chunk_bytes - len(partial_line.encode('utf-8'))
+        is_first_chunk = False
+
+    # Sort by timestamp
+    all_entries.sort(key=lambda x: x.get(timestamp_field, ""))
+
+    return all_entries, total_bytes_consumed
 
 
 def parse_ndjson_entries(
     content: str,
     timestamp_field: str,
-    after_timestamp: Optional[str] = None
-) -> list[dict]:
+    after_timestamp: Optional[str] = None,
+    from_offset: bool = False
+) -> tuple[list[dict], int]:
     """
     Parse NDJSON content and filter entries after a given timestamp.
-    Safely discards partial last records that may result from reading during writes.
+    Safely discards partial first/last records that may result from reading
+    during writes or resuming from a byte offset.
 
     Args:
         content: NDJSON string (one JSON object per line)
         timestamp_field: Field name containing the timestamp
         after_timestamp: Only include entries after this timestamp (ISO format)
+        from_offset: If True, first line may be partial and should be discarded if malformed
 
     Returns:
-        List of parsed JSON objects, filtered and sorted by timestamp
+        Tuple of (list of parsed JSON objects filtered and sorted by timestamp,
+                  bytes consumed including all complete lines)
     """
     entries = []
-    lines = content.strip().split("\n")
+    lines = content.split("\n")
+    bytes_consumed = 0
 
     for i, line in enumerate(lines):
+        line_bytes = len(line.encode('utf-8')) + 1  # +1 for newline
+
         if not line.strip():
+            bytes_consumed += line_bytes
             continue
+
         try:
             entry = json.loads(line)
             entry_ts = entry.get(timestamp_field, "")
 
             # Filter by timestamp if specified
             if after_timestamp and entry_ts <= after_timestamp:
+                bytes_consumed += line_bytes
                 continue
 
             entries.append(entry)
+            bytes_consumed += line_bytes
         except json.JSONDecodeError:
-            # If the last line fails to parse, it's likely a partial record
-            # from reading during an active write - discard it safely
-            if i == len(lines) - 1:
+            # Handle malformed lines
+            is_first = (i == 0)
+            is_last = (i == len(lines) - 1)
+
+            if is_first and from_offset:
+                # Expected: partial first line when reading from offset
+                print(f"      Discarded partial first record (resumed mid-line)")
+                bytes_consumed += line_bytes
+            elif is_last:
+                # Expected: partial last line from reading during active write
+                # Don't count these bytes - we'll re-read them next time
                 print(f"      Discarded partial last record (truncated during read)")
             else:
+                # Unexpected: malformed entry in the middle
                 print(f"      Warning: Skipped malformed entry at line {i + 1}")
+                bytes_consumed += line_bytes
             continue
 
     # Sort by timestamp
     entries.sort(key=lambda x: x.get(timestamp_field, ""))
-    return entries
+    return entries, bytes_consumed
 
 
-def fetch_log(log_name: str, log_config: dict, history: dict) -> tuple[int, Optional[str]]:
+def fetch_log(log_name: str, log_config: dict, history: dict) -> tuple[int, Optional[str], dict]:
     """
     Fetch a specific log type from the router.
 
     Returns:
-        Tuple of (new_entry_count, latest_timestamp)
+        Tuple of (new_entry_count, latest_timestamp, file_states)
+        where file_states is a dict of {filename: {first_timestamp, byte_offset}}
     """
     print(f"\nFetching {log_config['description']}...")
 
@@ -181,25 +365,104 @@ def fetch_log(log_name: str, log_config: dict, history: dict) -> tuple[int, Opti
     else:
         print("  First fetch - retrieving all available entries...")
 
+    # Get stored file states for offset optimization
+    stored_file_states = history.get(log_name, {}).get("files", {})
+    new_file_states = {}
+
+    # Check which remote files exist
+    primary_file = log_config["remote_files"][0]
+    rotated_file = log_config["remote_files"][1] if len(log_config["remote_files"]) > 1 else None
+
+    primary_exists = check_remote_file_exists(primary_file)
+    rotated_exists = rotated_file and check_remote_file_exists(rotated_file)
+
+    # Provide diagnostic info if primary file doesn't exist
+    if not primary_exists:
+        if rotated_exists:
+            print(f"  Note: {primary_file} does not exist (only rotated file found)")
+            print(f"        AdGuard Home may have recently restarted and is buffering")
+            print(f"        new queries in memory (flushes after ~1000 queries).")
+        else:
+            print(f"  Warning: No querylog files found on router!")
+
     # Fetch all remote log files
     all_entries = []
+    timestamp_field = log_config["timestamp_field"]
+
     for remote_file in log_config["remote_files"]:
+        file_key = Path(remote_file).name
         print(f"  Reading {remote_file}...")
-        content = fetch_remote_file(remote_file)
-        if content:
-            entries = parse_ndjson_entries(
-                content,
-                log_config["timestamp_field"],
-                after_timestamp=last_fetch
-            )
+
+        # Check if file exists and get its size
+        file_size = get_remote_file_size(remote_file)
+        if file_size is None:
+            print(f"    File not found or empty")
+            continue
+
+        # Get first line to detect rotation
+        first_line = get_remote_first_line(remote_file)
+        if not first_line:
+            print(f"    File not found or empty")
+            continue
+
+        current_first_ts = get_first_timestamp(first_line, timestamp_field)
+
+        # Check if we can use offset optimization
+        stored_state = stored_file_states.get(file_key, {})
+        stored_first_ts = stored_state.get("first_timestamp")
+        stored_offset = stored_state.get("byte_offset", 0)
+
+        use_offset = False
+        offset = 0
+
+        if stored_first_ts and current_first_ts == stored_first_ts and stored_offset > 0:
+            # File hasn't rotated, we can resume from offset
+            if stored_offset < file_size:
+                use_offset = True
+                offset = stored_offset
+                bytes_to_read = file_size - offset
+                print(f"    Resuming from byte {offset:,} (reading {bytes_to_read:,} of {file_size:,} bytes)")
+            else:
+                # No new data since last fetch
+                print(f"    No new data (file size unchanged)")
+                new_file_states[file_key] = {
+                    "first_timestamp": current_first_ts,
+                    "byte_offset": stored_offset
+                }
+                continue
+        else:
+            if stored_first_ts and current_first_ts != stored_first_ts:
+                print(f"    File rotated, reading from beginning")
+            print(f"    Reading full file ({file_size:,} bytes)")
+
+        # Fetch the file content using chunked reading
+        entries, bytes_consumed = fetch_file_in_chunks(
+            remote_file,
+            offset,
+            file_size,
+            timestamp_field,
+            after_timestamp=last_fetch,
+            chunk_size=FETCH_CHUNK_SIZE
+        )
+
+        if entries or bytes_consumed > 0:
             print(f"    Found {len(entries)} new entries")
             all_entries.extend(entries)
+
+            # Update file state for next fetch
+            new_offset = offset + bytes_consumed
+            new_file_states[file_key] = {
+                "first_timestamp": current_first_ts,
+                "byte_offset": new_offset
+            }
         else:
             print(f"    File not found or empty")
 
     if not all_entries:
         print("  No new entries found.")
-        return 0, None
+        if not primary_exists and rotated_exists:
+            print("  Tip: Wait for more DNS queries or restart AdGuard Home to flush buffer.")
+        return 0, None, new_file_states
 
     # Sort all entries by timestamp
     all_entries.sort(key=lambda x: x.get(log_config["timestamp_field"], ""))
@@ -228,7 +491,7 @@ def fetch_log(log_name: str, log_config: dict, history: dict) -> tuple[int, Opti
     # Get latest timestamp
     latest_ts = unique_entries[-1].get(log_config["timestamp_field"]) if unique_entries else None
 
-    return len(unique_entries), latest_ts
+    return len(unique_entries), latest_ts, new_file_states
 
 
 def display_status(history: dict) -> None:
@@ -293,14 +556,18 @@ def run_fetch(skip_confirmation: bool = False) -> dict:
     total_new_entries = 0
 
     for log_name, log_config in ADGUARD_LOGS.items():
-        new_count, latest_ts = fetch_log(log_name, log_config, history)
+        new_count, latest_ts, file_states = fetch_log(log_name, log_config, history)
         total_new_entries += new_count
 
-        if new_count > 0:
-            # Update history
-            if log_name not in history:
-                history[log_name] = {"total_entries_fetched": 0}
+        # Update history (always update file states for offset tracking)
+        if log_name not in history:
+            history[log_name] = {"total_entries_fetched": 0}
 
+        # Always update file states for offset optimization
+        if file_states:
+            history[log_name]["files"] = file_states
+
+        if new_count > 0:
             history[log_name]["last_fetch_time"] = fetch_time
             history[log_name]["last_entry_timestamp"] = latest_ts
             history[log_name]["total_entries_fetched"] = (
