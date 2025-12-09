@@ -223,6 +223,44 @@
             text-align: right;
             font-family: monospace;
         }
+        .pagination {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            margin-top: 20px;
+            padding: 15px;
+            background: #f9f9f9;
+            border-radius: 4px;
+        }
+        .pagination button {
+            padding: 8px 16px;
+            font-size: 14px;
+            cursor: pointer;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            background: white;
+            transition: background 0.2s;
+        }
+        .pagination button:hover:not(:disabled) {
+            background: #e9e9e9;
+        }
+        .pagination button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        .pagination .page-info {
+            font-size: 14px;
+            color: #666;
+        }
+        .pagination input[type="number"] {
+            width: 60px;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+            text-align: center;
+        }
         .loading-overlay {
             position: fixed;
             top: 0;
@@ -258,9 +296,6 @@
 
         <div class="actions">
             <button id="updateLogsBtn" onclick="updateLogs()">Update Logs</button>
-            <button id="buildSummaryBtn" onclick="buildSummary()">Build Summary</button>
-            <label for="fromDate">From Date:</label>
-            <input type="date" id="fromDate">
         </div>
 
         <div id="status" class="status"></div>
@@ -269,11 +304,16 @@
             <button class="tab active" onclick="switchTab('client')">Client Summary</button>
             <button class="tab" onclick="switchTab('domain')">Domain Summary</button>
             <button class="tab" onclick="switchTab('baseDomain')">Base Domain Summary</button>
+            <button class="tab" onclick="switchTab('rawLogs')">Raw Logs</button>
         </div>
 
         <!-- Client Summary Panel -->
         <div id="client-panel" class="panel active">
             <div class="filters">
+                <div class="filter-group">
+                    <label>Date</label>
+                    <input type="date" id="client-date">
+                </div>
                 <div class="filter-group">
                     <label>Domain (QH)</label>
                     <input type="text" id="client-qh" placeholder="Contains...">
@@ -310,14 +350,6 @@
                     <label>Count <=</label>
                     <input type="number" id="client-countLte" min="0">
                 </div>
-                <div class="filter-group">
-                    <label>Max Count >=</label>
-                    <input type="number" id="client-maxCountGte" min="0">
-                </div>
-                <div class="filter-group">
-                    <label>Max Count <=</label>
-                    <input type="number" id="client-maxCountLte" min="0">
-                </div>
                 <div class="filter-actions">
                     <button class="search-btn" onclick="searchData('client')">Search</button>
                     <button class="clear-btn" onclick="clearFilters('client')">Clear</button>
@@ -328,6 +360,7 @@
                 <table id="client-table">
                     <thead>
                         <tr>
+                            <th onclick="sortTable('client', 'Date')">Date <span class="sort-indicator">&#9650;</span></th>
                             <th onclick="sortTable('client', 'IP')">IP <span class="sort-indicator">&#9650;</span></th>
                             <th onclick="sortTable('client', 'client')">Client <span class="sort-indicator">&#9650;</span></th>
                             <th onclick="sortTable('client', 'QH')">Domain (QH) <span class="sort-indicator">&#9650;</span></th>
@@ -335,11 +368,19 @@
                             <th onclick="sortTable('client', 'CP')">Protocol <span class="sort-indicator">&#9650;</span></th>
                             <th onclick="sortTable('client', 'IsFiltered')">Filtered <span class="sort-indicator">&#9650;</span></th>
                             <th onclick="sortTable('client', 'count')">Count <span class="sort-indicator">&#9650;</span></th>
-                            <th onclick="sortTable('client', 'maxCount')">Max/Day <span class="sort-indicator">&#9650;</span></th>
                         </tr>
                     </thead>
                     <tbody></tbody>
                 </table>
+            </div>
+            <div class="pagination" id="client-pagination">
+                <button onclick="goToPage('client', 1)">&laquo; First</button>
+                <button onclick="goToPage('client', state.client.page - 1)">&lsaquo; Prev</button>
+                <span class="page-info">
+                    Page <input type="number" id="client-page-input" min="1" onchange="goToPageInput('client')"> of <span id="client-total-pages">1</span>
+                </span>
+                <button onclick="goToPage('client', state.client.page + 1)">Next &rsaquo;</button>
+                <button onclick="goToPage('client', state.client.totalPages)">Last &raquo;</button>
             </div>
         </div>
 
@@ -403,6 +444,15 @@
                     <tbody></tbody>
                 </table>
             </div>
+            <div class="pagination" id="domain-pagination">
+                <button onclick="goToPage('domain', 1)">&laquo; First</button>
+                <button onclick="goToPage('domain', state.domain.page - 1)">&lsaquo; Prev</button>
+                <span class="page-info">
+                    Page <input type="number" id="domain-page-input" min="1" onchange="goToPageInput('domain')"> of <span id="domain-total-pages">1</span>
+                </span>
+                <button onclick="goToPage('domain', state.domain.page + 1)">Next &rsaquo;</button>
+                <button onclick="goToPage('domain', state.domain.totalPages)">Last &raquo;</button>
+            </div>
         </div>
 
         <!-- Base Domain Summary Panel -->
@@ -465,6 +515,100 @@
                     <tbody></tbody>
                 </table>
             </div>
+            <div class="pagination" id="baseDomain-pagination">
+                <button onclick="goToPage('baseDomain', 1)">&laquo; First</button>
+                <button onclick="goToPage('baseDomain', state.baseDomain.page - 1)">&lsaquo; Prev</button>
+                <span class="page-info">
+                    Page <input type="number" id="baseDomain-page-input" min="1" onchange="goToPageInput('baseDomain')"> of <span id="baseDomain-total-pages">1</span>
+                </span>
+                <button onclick="goToPage('baseDomain', state.baseDomain.page + 1)">Next &rsaquo;</button>
+                <button onclick="goToPage('baseDomain', state.baseDomain.totalPages)">Last &raquo;</button>
+            </div>
+        </div>
+
+        <!-- Raw Logs Panel -->
+        <div id="rawLogs-panel" class="panel">
+            <div class="filters">
+                <div class="filter-group">
+                    <label>Date From</label>
+                    <input type="date" id="rawLogs-dateFrom">
+                </div>
+                <div class="filter-group">
+                    <label>Date To</label>
+                    <input type="date" id="rawLogs-dateTo">
+                </div>
+                <div class="filter-group">
+                    <label>Domain (QH)</label>
+                    <input type="text" id="rawLogs-qh" placeholder="Contains...">
+                </div>
+                <div class="filter-group">
+                    <label>IP Address</label>
+                    <input type="text" id="rawLogs-ip" placeholder="Exact match">
+                </div>
+                <div class="filter-group">
+                    <label>Query Type (QT)</label>
+                    <input type="text" id="rawLogs-qt" placeholder="e.g., A, AAAA">
+                </div>
+                <div class="filter-group">
+                    <label>Protocol (CP)</label>
+                    <input type="text" id="rawLogs-cp" placeholder="e.g., dns">
+                </div>
+                <div class="filter-group">
+                    <label>Is Filtered</label>
+                    <select id="rawLogs-isFiltered">
+                        <option value="">Any</option>
+                        <option value="true">Yes (Blocked)</option>
+                        <option value="false">No (Allowed)</option>
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <label>Filter Rule</label>
+                    <input type="text" id="rawLogs-filterRule" placeholder="Contains...">
+                </div>
+                <div class="filter-group">
+                    <label>Cached</label>
+                    <select id="rawLogs-cached">
+                        <option value="">Any</option>
+                        <option value="true">Yes</option>
+                        <option value="false">No</option>
+                    </select>
+                </div>
+                <div class="filter-actions">
+                    <button class="search-btn" onclick="searchData('rawLogs')">Search</button>
+                    <button class="clear-btn" onclick="clearFilters('rawLogs')">Clear</button>
+                </div>
+            </div>
+            <div class="results-info" id="rawLogs-results-info"></div>
+            <div class="table-container">
+                <table id="rawLogs-table">
+                    <thead>
+                        <tr>
+                            <th onclick="sortTable('rawLogs', 'timestamp')">Timestamp <span class="sort-indicator">&#9650;</span></th>
+                            <th onclick="sortTable('rawLogs', 'ip')">IP <span class="sort-indicator">&#9650;</span></th>
+                            <th>Client</th>
+                            <th onclick="sortTable('rawLogs', 'domain')">Domain <span class="sort-indicator">&#9650;</span></th>
+                            <th onclick="sortTable('rawLogs', 'query_type')">Type <span class="sort-indicator">&#9650;</span></th>
+                            <th onclick="sortTable('rawLogs', 'client_protocol')">Protocol <span class="sort-indicator">&#9650;</span></th>
+                            <th>Upstream</th>
+                            <th onclick="sortTable('rawLogs', 'is_filtered')">Filtered <span class="sort-indicator">&#9650;</span></th>
+                            <th>Filter Rule</th>
+                            <th onclick="sortTable('rawLogs', 'elapsed_ns')">Elapsed (ms) <span class="sort-indicator">&#9650;</span></th>
+                            <th onclick="sortTable('rawLogs', 'cached')">Cached <span class="sort-indicator">&#9650;</span></th>
+                            <th>Answer</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+            <div class="pagination" id="rawLogs-pagination">
+                <button onclick="goToPage('rawLogs', 1)">&laquo; First</button>
+                <button onclick="goToPage('rawLogs', state.rawLogs.page - 1)">&lsaquo; Prev</button>
+                <span class="page-info">
+                    Page <input type="number" id="rawLogs-page-input" min="1" onchange="goToPageInput('rawLogs')"> of <span id="rawLogs-total-pages">1</span>
+                </span>
+                <button onclick="goToPage('rawLogs', state.rawLogs.page + 1)">Next &rsaquo;</button>
+                <button onclick="goToPage('rawLogs', state.rawLogs.totalPages)">Last &raquo;</button>
+            </div>
         </div>
     </div>
 
@@ -473,17 +617,21 @@
     </div>
 
     <script>
-        // Store data and sort state for each panel
+        // Store data, sort state, and pagination for each panel
         const state = {
-            client: { data: [], sortColumn: 'count', sortAsc: false },
-            domain: { data: [], sortColumn: 'count', sortAsc: false },
-            baseDomain: { data: [], sortColumn: 'count', sortAsc: false }
+            client: { data: [], sortColumn: 'count', sortAsc: false, page: 1, totalPages: 1, total: 0 },
+            domain: { data: [], sortColumn: 'count', sortAsc: false, page: 1, totalPages: 1, total: 0 },
+            baseDomain: { data: [], sortColumn: 'count', sortAsc: false, page: 1, totalPages: 1, total: 0 },
+            rawLogs: { data: [], sortColumn: 'timestamp', sortAsc: false, page: 1, totalPages: 1, total: 0 }
         };
+
+        const PAGE_SIZE = 500;
 
         const API_ENDPOINTS = {
             client: '/api/query-log-summary',
             domain: '/api/domain-summary',
-            baseDomain: '/api/base-domain-summary'
+            baseDomain: '/api/base-domain-summary',
+            rawLogs: '/api/raw-logs'
         };
 
         function showStatus(message, type) {
@@ -524,40 +672,6 @@
             }
         }
 
-        async function buildSummary() {
-            const btn = document.getElementById('buildSummaryBtn');
-            btn.disabled = true;
-
-            const fromDate = document.getElementById('fromDate').value;
-            const url = fromDate
-                ? `/api/build-summary?from_date=${fromDate}`
-                : '/api/build-summary';
-
-            showStatus('Building summary...', 'loading');
-            showLoading(true);
-
-            try {
-                const response = await fetch(url, { method: 'POST' });
-                const result = await response.json();
-
-                if (result.success) {
-                    showStatus(`Success: ${result.message} (${result.client_records} client, ${result.domain_records} domain, ${result.base_domain_records} base domain records)`, 'success');
-                    // Refresh current tab data
-                    const activeTab = document.querySelector('.tab.active').textContent.toLowerCase();
-                    if (activeTab.includes('client')) searchData('client');
-                    else if (activeTab.includes('base')) searchData('baseDomain');
-                    else searchData('domain');
-                } else {
-                    showStatus(`Error: ${result.message}`, 'error');
-                }
-            } catch (error) {
-                showStatus(`Error: ${error.message}`, 'error');
-            } finally {
-                btn.disabled = false;
-                showLoading(false);
-            }
-        }
-
         function switchTab(tabName) {
             // Update tab buttons
             document.querySelectorAll('.tab').forEach(tab => tab.classList.remove('active'));
@@ -573,8 +687,51 @@
             }
         }
 
-        function getFilterParams(tabName) {
+        function getFilterParams(tabName, page = 1) {
             const params = new URLSearchParams();
+            const st = state[tabName];
+
+            // Pagination
+            params.append('page', page);
+            params.append('page_size', PAGE_SIZE);
+
+            // Sorting
+            if (st.sortColumn) {
+                params.append('sort_by', st.sortColumn);
+                params.append('sort_asc', st.sortAsc);
+            }
+
+            // Raw Logs specific filters
+            if (tabName === 'rawLogs') {
+                const dateFrom = document.getElementById('rawLogs-dateFrom').value;
+                if (dateFrom) params.append('date_from', dateFrom);
+
+                const dateTo = document.getElementById('rawLogs-dateTo').value;
+                if (dateTo) params.append('date_to', dateTo);
+
+                const qh = document.getElementById('rawLogs-qh').value.trim();
+                if (qh) params.append('qh', qh);
+
+                const ip = document.getElementById('rawLogs-ip').value.trim();
+                if (ip) params.append('ip', ip);
+
+                const qt = document.getElementById('rawLogs-qt').value.trim();
+                if (qt) params.append('qt', qt);
+
+                const cp = document.getElementById('rawLogs-cp').value.trim();
+                if (cp) params.append('cp', cp);
+
+                const isFiltered = document.getElementById('rawLogs-isFiltered').value;
+                if (isFiltered) params.append('is_filtered', isFiltered);
+
+                const filterRule = document.getElementById('rawLogs-filterRule').value.trim();
+                if (filterRule) params.append('filter_rule', filterRule);
+
+                const cached = document.getElementById('rawLogs-cached').value;
+                if (cached) params.append('cached', cached);
+
+                return params;
+            }
 
             const qh = document.getElementById(`${tabName}-qh`).value.trim();
             if (qh) params.append('qh', qh);
@@ -594,14 +751,20 @@
             const countLte = document.getElementById(`${tabName}-countLte`).value;
             if (countLte) params.append('count_lte', countLte);
 
-            const maxCountGte = document.getElementById(`${tabName}-maxCountGte`).value;
-            if (maxCountGte) params.append('max_count_gte', maxCountGte);
+            // Max count filters only for domain/baseDomain tabs
+            if (tabName === 'domain' || tabName === 'baseDomain') {
+                const maxCountGte = document.getElementById(`${tabName}-maxCountGte`).value;
+                if (maxCountGte) params.append('max_count_gte', maxCountGte);
 
-            const maxCountLte = document.getElementById(`${tabName}-maxCountLte`).value;
-            if (maxCountLte) params.append('max_count_lte', maxCountLte);
+                const maxCountLte = document.getElementById(`${tabName}-maxCountLte`).value;
+                if (maxCountLte) params.append('max_count_lte', maxCountLte);
+            }
 
             // Client-specific filters
             if (tabName === 'client') {
+                const date = document.getElementById(`${tabName}-date`).value;
+                if (date) params.append('date', date);
+
                 const ip = document.getElementById(`${tabName}-ip`).value.trim();
                 if (ip) params.append('ip', ip);
 
@@ -612,8 +775,8 @@
             return params;
         }
 
-        async function searchData(tabName) {
-            const params = getFilterParams(tabName);
+        async function searchData(tabName, page = 1) {
+            const params = getFilterParams(tabName, page);
             const url = `${API_ENDPOINTS[tabName]}?${params.toString()}`;
 
             showLoading(true);
@@ -622,11 +785,19 @@
                 const response = await fetch(url);
                 const result = await response.json();
 
+                // Update state with pagination info
                 state[tabName].data = result.records;
-                sortAndRender(tabName);
+                state[tabName].page = result.page;
+                state[tabName].totalPages = result.total_pages;
+                state[tabName].total = result.total;
 
+                sortAndRender(tabName);
+                updatePagination(tabName);
+
+                const start = (result.page - 1) * PAGE_SIZE + 1;
+                const end = Math.min(result.page * PAGE_SIZE, result.total);
                 document.getElementById(`${tabName}-results-info`).textContent =
-                    `Showing ${result.total.toLocaleString()} records`;
+                    `Showing ${start.toLocaleString()}-${end.toLocaleString()} of ${result.total.toLocaleString()} records`;
             } catch (error) {
                 showStatus(`Error loading data: ${error.message}`, 'error');
             } finally {
@@ -634,22 +805,68 @@
             }
         }
 
-        function clearFilters(tabName) {
-            document.getElementById(`${tabName}-qh`).value = '';
-            document.getElementById(`${tabName}-qt`).value = '';
-            document.getElementById(`${tabName}-cp`).value = '';
-            document.getElementById(`${tabName}-isFiltered`).value = '';
-            document.getElementById(`${tabName}-countGte`).value = '';
-            document.getElementById(`${tabName}-countLte`).value = '';
-            document.getElementById(`${tabName}-maxCountGte`).value = '';
-            document.getElementById(`${tabName}-maxCountLte`).value = '';
+        function updatePagination(tabName) {
+            const st = state[tabName];
 
-            if (tabName === 'client') {
-                document.getElementById(`${tabName}-ip`).value = '';
-                document.getElementById(`${tabName}-client`).value = '';
+            // Update page input and total pages display
+            document.getElementById(`${tabName}-page-input`).value = st.page;
+            document.getElementById(`${tabName}-page-input`).max = st.totalPages;
+            document.getElementById(`${tabName}-total-pages`).textContent = st.totalPages;
+
+            // Enable/disable buttons
+            const pagination = document.getElementById(`${tabName}-pagination`);
+            const buttons = pagination.querySelectorAll('button');
+            buttons[0].disabled = st.page <= 1; // First
+            buttons[1].disabled = st.page <= 1; // Prev
+            buttons[2].disabled = st.page >= st.totalPages; // Next
+            buttons[3].disabled = st.page >= st.totalPages; // Last
+        }
+
+        function goToPage(tabName, page) {
+            const st = state[tabName];
+            if (page < 1 || page > st.totalPages || page === st.page) return;
+            searchData(tabName, page);
+        }
+
+        function goToPageInput(tabName) {
+            const input = document.getElementById(`${tabName}-page-input`);
+            const page = parseInt(input.value, 10);
+            if (!isNaN(page)) {
+                goToPage(tabName, page);
+            }
+        }
+
+        function clearFilters(tabName) {
+            if (tabName === 'rawLogs') {
+                document.getElementById('rawLogs-dateFrom').value = '';
+                document.getElementById('rawLogs-dateTo').value = '';
+                document.getElementById('rawLogs-qh').value = '';
+                document.getElementById('rawLogs-ip').value = '';
+                document.getElementById('rawLogs-qt').value = '';
+                document.getElementById('rawLogs-cp').value = '';
+                document.getElementById('rawLogs-isFiltered').value = '';
+                document.getElementById('rawLogs-filterRule').value = '';
+                document.getElementById('rawLogs-cached').value = '';
+            } else {
+                document.getElementById(`${tabName}-qh`).value = '';
+                document.getElementById(`${tabName}-qt`).value = '';
+                document.getElementById(`${tabName}-cp`).value = '';
+                document.getElementById(`${tabName}-isFiltered`).value = '';
+                document.getElementById(`${tabName}-countGte`).value = '';
+                document.getElementById(`${tabName}-countLte`).value = '';
+
+                if (tabName === 'client') {
+                    document.getElementById(`${tabName}-date`).value = '';
+                    document.getElementById(`${tabName}-ip`).value = '';
+                    document.getElementById(`${tabName}-client`).value = '';
+                } else {
+                    document.getElementById(`${tabName}-maxCountGte`).value = '';
+                    document.getElementById(`${tabName}-maxCountLte`).value = '';
+                }
             }
 
-            searchData(tabName);
+            // Reset to page 1 when clearing filters
+            searchData(tabName, 1);
         }
 
         function sortTable(tabName, column) {
@@ -662,59 +879,43 @@
                 st.sortAsc = true;
             }
 
-            sortAndRender(tabName);
+            // Fetch sorted data from server, reset to page 1
+            searchData(tabName, 1);
         }
 
         function sortAndRender(tabName) {
             const st = state[tabName];
-            const data = [...st.data];
 
-            // Sort data
-            data.sort((a, b) => {
-                let aVal = a[st.sortColumn];
-                let bVal = b[st.sortColumn];
-
-                // Handle different types
-                if (typeof aVal === 'number' && typeof bVal === 'number') {
-                    return st.sortAsc ? aVal - bVal : bVal - aVal;
-                }
-                if (typeof aVal === 'boolean' && typeof bVal === 'boolean') {
-                    return st.sortAsc ? (aVal ? 1 : -1) - (bVal ? 1 : -1) : (bVal ? 1 : -1) - (aVal ? 1 : -1);
-                }
-
-                // String comparison
-                aVal = String(aVal || '').toLowerCase();
-                bVal = String(bVal || '').toLowerCase();
-                if (aVal < bVal) return st.sortAsc ? -1 : 1;
-                if (aVal > bVal) return st.sortAsc ? 1 : -1;
-                return 0;
-            });
-
-            // Update sort indicators
+            // Update sort indicators (data is already sorted by server)
             const table = document.getElementById(`${tabName}-table`);
             table.querySelectorAll('th').forEach(th => {
                 th.classList.remove('sorted');
                 const indicator = th.querySelector('.sort-indicator');
-                indicator.innerHTML = '&#9650;';
+                if (indicator) {
+                    indicator.innerHTML = '&#9650;';
+                }
             });
 
             const headers = table.querySelectorAll('th');
             const columnIndex = getColumnIndex(tabName, st.sortColumn);
             if (columnIndex >= 0) {
-                headers[columnIndex].classList.add('sorted');
-                headers[columnIndex].querySelector('.sort-indicator').innerHTML =
-                    st.sortAsc ? '&#9650;' : '&#9660;';
+                const indicator = headers[columnIndex].querySelector('.sort-indicator');
+                if (indicator) {
+                    headers[columnIndex].classList.add('sorted');
+                    indicator.innerHTML = st.sortAsc ? '&#9650;' : '&#9660;';
+                }
             }
 
-            // Render table
-            renderTable(tabName, data);
+            // Render table (data already sorted by server)
+            renderTable(tabName, st.data);
         }
 
         function getColumnIndex(tabName, column) {
             const columns = {
-                client: ['IP', 'client', 'QH', 'QT', 'CP', 'IsFiltered', 'count', 'maxCount'],
+                client: ['Date', 'IP', 'client', 'QH', 'QT', 'CP', 'IsFiltered', 'count'],
                 domain: ['QH', 'QT', 'CP', 'IsFiltered', 'count', 'maxCount'],
-                baseDomain: ['QH', 'QT', 'CP', 'IsFiltered', 'count', 'maxCount']
+                baseDomain: ['QH', 'QT', 'CP', 'IsFiltered', 'count', 'maxCount'],
+                rawLogs: ['timestamp', 'ip', null, 'domain', 'query_type', 'client_protocol', null, 'is_filtered', null, 'elapsed_ns', 'cached', null]
             };
             return columns[tabName].indexOf(column);
         }
@@ -727,6 +928,7 @@
                 data.forEach(row => {
                     const tr = document.createElement('tr');
                     tr.innerHTML = `
+                        <td>${escapeHtml(row.Date || '')}</td>
                         <td>${escapeHtml(row.IP || '')}</td>
                         <td>${escapeHtml(row.client || '')}</td>
                         <td class="domain-cell" title="${escapeHtml(row.QH || '')}">${escapeHtml(row.QH || '')}</td>
@@ -734,7 +936,29 @@
                         <td>${escapeHtml(row.CP || '')}</td>
                         <td class="${row.IsFiltered ? 'filtered-true' : 'filtered-false'}">${row.IsFiltered ? 'Yes' : 'No'}</td>
                         <td class="count-cell">${(row.count || 0).toLocaleString()}</td>
-                        <td class="count-cell">${(row.maxCount || 0).toLocaleString()}</td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+            } else if (tabName === 'rawLogs') {
+                data.forEach(row => {
+                    const tr = document.createElement('tr');
+                    const timestamp = row.timestamp ? new Date(row.timestamp).toLocaleString() : '';
+                    const elapsedMs = row.elapsedNs != null ? (row.elapsedNs / 1000000).toFixed(2) : '';
+                    const answer = row.answer || '';
+                    const answerDisplay = answer.length > 50 ? answer.substring(0, 50) + '...' : answer;
+                    tr.innerHTML = `
+                        <td style="white-space: nowrap;">${escapeHtml(timestamp)}</td>
+                        <td>${escapeHtml(row.IP || '')}</td>
+                        <td>${escapeHtml(row.client || '')}</td>
+                        <td class="domain-cell" title="${escapeHtml(row.QH || '')}">${escapeHtml(row.QH || '')}</td>
+                        <td>${escapeHtml(row.QT || '')}</td>
+                        <td>${escapeHtml(row.CP || '')}</td>
+                        <td>${escapeHtml(row.upstream || '')}</td>
+                        <td class="${row.IsFiltered ? 'filtered-true' : 'filtered-false'}">${row.IsFiltered ? 'Yes' : 'No'}</td>
+                        <td class="domain-cell" title="${escapeHtml(row.filterRule || '')}">${escapeHtml(row.filterRule || '')}</td>
+                        <td class="count-cell">${escapeHtml(elapsedMs)}</td>
+                        <td>${row.cached ? 'Yes' : 'No'}</td>
+                        <td class="domain-cell" title="${escapeHtml(answer)}">${escapeHtml(answerDisplay)}</td>
                     `;
                     tbody.appendChild(tr);
                 });

@@ -4,12 +4,9 @@ AdGuard Home Log Summary Web Service
 
 Provides REST API endpoints for:
 - Fetching logs from router
-- Building log summaries
-- Querying and filtering summary data
+- Querying raw logs and aggregated summaries via DuckDB
 """
 
-import json
-import re
 from pathlib import Path
 from typing import Optional
 
@@ -19,7 +16,11 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-from pathlib import Path
+# Import database module
+from database import (
+    init_database, query_raw_logs, query_client_summary,
+    query_domain_summary, query_base_domain_summary, get_database_stats
+)
 
 # Load .env configuration
 ENV_FILE = Path(__file__).parent / ".env"
@@ -44,18 +45,15 @@ WEB_PORT = int(ENV.get("WEB_PORT", "8080"))
 
 # Import functions from existing scripts
 from fetch_logs import run_fetch
-from build_log_summary import run_build_summary
 
 # Directories
 SCRIPT_DIR = Path(__file__).parent
-APP_DATA_DIR = SCRIPT_DIR / "AppData"
-CURRENT_DIR = APP_DATA_DIR / "Current"
 STATIC_DIR = SCRIPT_DIR / "static"
 
 app = FastAPI(
     title="AdGuard Home Log Summary API",
     description="API for managing and querying AdGuard Home DNS logs",
-    version="1.0.0"
+    version="2.0.0"
 )
 
 # Enable CORS for frontend
@@ -78,10 +76,15 @@ class FetchResponse(OperationResponse):
     entries_fetched: int = 0
 
 
-class BuildResponse(OperationResponse):
-    client_records: int = 0
-    domain_records: int = 0
-    base_domain_records: int = 0
+# Pagination defaults
+DEFAULT_PAGE_SIZE = 500
+MAX_PAGE_SIZE = 2000
+
+
+# Initialize database on startup
+@app.on_event("startup")
+async def startup_event():
+    init_database()
 
 
 # API Endpoints
@@ -103,115 +106,63 @@ async def update_logs():
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/api/build-summary", response_model=BuildResponse)
-async def build_summary(from_date: Optional[str] = Query(None, description="Filter entries from this date (YYYY-MM-DD)")):
-    """
-    Build log summaries from querylog.ndjson.
-    Optionally filter to entries >= from_date.
-    """
+@app.get("/api/stats")
+async def get_stats():
+    """Get database statistics."""
     try:
-        # Validate date format if provided
-        if from_date:
-            if not re.match(r'^\d{4}-\d{2}-\d{2}$', from_date):
-                raise HTTPException(status_code=400, detail="from_date must be in YYYY-MM-DD format")
-
-        result = run_build_summary(from_date=from_date)
-        return BuildResponse(
-            success=result["success"],
-            message=result["message"],
-            client_records=result["client_records"],
-            domain_records=result["domain_records"],
-            base_domain_records=result["base_domain_records"]
-        )
-    except HTTPException:
-        raise
+        stats = get_database_stats()
+        return stats
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
-def load_json_file(filename: str) -> list[dict]:
-    """Load a JSON file from the Current directory."""
-    file_path = CURRENT_DIR / filename
-    if not file_path.exists():
-        raise HTTPException(status_code=404, detail=f"File not found: {filename}")
-    with open(file_path, "r") as f:
-        return json.load(f)
-
-
-def filter_records(
-    records: list[dict],
-    qh: Optional[str] = None,
-    qt: Optional[str] = None,
-    cp: Optional[str] = None,
-    ip: Optional[str] = None,
-    client: Optional[str] = None,
-    is_filtered: Optional[bool] = None,
-    count_gte: Optional[int] = None,
-    count_lte: Optional[int] = None,
-    max_count_gte: Optional[int] = None,
-    max_count_lte: Optional[int] = None,
-) -> list[dict]:
+@app.get("/api/raw-logs")
+async def get_raw_logs(
+    date_from: Optional[str] = Query(None, description="Start date (YYYY-MM-DD)"),
+    date_to: Optional[str] = Query(None, description="End date (YYYY-MM-DD)"),
+    ip: Optional[str] = Query(None, description="IP address (exact match)"),
+    qh: Optional[str] = Query(None, description="Domain (wildcard search)"),
+    qt: Optional[str] = Query(None, description="Query type (exact match)"),
+    cp: Optional[str] = Query(None, description="Client protocol (exact match)"),
+    is_filtered: Optional[bool] = Query(None, description="Filter status"),
+    filter_rule: Optional[str] = Query(None, description="Filter rule (wildcard search)"),
+    cached: Optional[bool] = Query(None, description="Cached status"),
+    sort_by: str = Query("timestamp", description="Column to sort by"),
+    sort_asc: bool = Query(False, description="Sort ascending"),
+    page: int = Query(1, ge=1, description="Page number"),
+    page_size: int = Query(DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE, description="Records per page"),
+):
     """
-    Filter records based on query parameters.
-
-    - QH: wildcard case-insensitive search (contains)
-    - Other text fields: case-insensitive exact match
-    - IsFiltered: boolean match
-    - count/maxCount: >= or <= comparisons
+    Get raw log entries with full details.
+    Supports filtering by date range, IP, domain, query type, etc.
     """
-    filtered = records
-
-    # QH - wildcard case-insensitive (contains)
-    if qh is not None:
-        qh_lower = qh.lower()
-        filtered = [r for r in filtered if qh_lower in r.get("QH", "").lower()]
-
-    # QT - case-insensitive exact match
-    if qt is not None:
-        qt_lower = qt.lower()
-        filtered = [r for r in filtered if r.get("QT", "").lower() == qt_lower]
-
-    # CP - case-insensitive exact match
-    if cp is not None:
-        cp_lower = cp.lower()
-        filtered = [r for r in filtered if r.get("CP", "").lower() == cp_lower]
-
-    # IP - case-insensitive exact match
-    if ip is not None:
-        ip_lower = ip.lower()
-        filtered = [r for r in filtered if r.get("IP", "").lower() == ip_lower]
-
-    # client - case-insensitive exact match
-    if client is not None:
-        client_lower = client.lower()
-        filtered = [r for r in filtered if r.get("client", "").lower() == client_lower]
-
-    # IsFiltered - boolean match
-    if is_filtered is not None:
-        filtered = [r for r in filtered if r.get("IsFiltered") == is_filtered]
-
-    # count >=
-    if count_gte is not None:
-        filtered = [r for r in filtered if r.get("count", 0) >= count_gte]
-
-    # count <=
-    if count_lte is not None:
-        filtered = [r for r in filtered if r.get("count", 0) <= count_lte]
-
-    # maxCount >=
-    if max_count_gte is not None:
-        filtered = [r for r in filtered if r.get("maxCount", 0) >= max_count_gte]
-
-    # maxCount <=
-    if max_count_lte is not None:
-        filtered = [r for r in filtered if r.get("maxCount", 0) <= max_count_lte]
-
-    return filtered
+    try:
+        result = query_raw_logs(
+            date_from=date_from,
+            date_to=date_to,
+            ip=ip,
+            domain=qh,
+            query_type=qt,
+            client_protocol=cp,
+            is_filtered=is_filtered,
+            filter_rule=filter_rule,
+            cached=cached,
+            sort_by=sort_by,
+            sort_asc=sort_asc,
+            page=page,
+            page_size=page_size,
+        )
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/api/query-log-summary")
 async def get_query_log_summary(
-    qh: Optional[str] = Query(None, description="Domain (wildcard case-insensitive search)"),
+    date: Optional[str] = Query(None, description="Date (exact match, YYYY-MM-DD)"),
+    date_from: Optional[str] = Query(None, description="Start date (YYYY-MM-DD)"),
+    date_to: Optional[str] = Query(None, description="End date (YYYY-MM-DD)"),
+    qh: Optional[str] = Query(None, description="Domain (wildcard search)"),
     qt: Optional[str] = Query(None, description="Query type (exact match)"),
     cp: Optional[str] = Query(None, description="Client protocol (exact match)"),
     ip: Optional[str] = Query(None, description="IP address (exact match)"),
@@ -219,25 +170,40 @@ async def get_query_log_summary(
     is_filtered: Optional[bool] = Query(None, description="Filter status"),
     count_gte: Optional[int] = Query(None, description="Count >= value"),
     count_lte: Optional[int] = Query(None, description="Count <= value"),
-    max_count_gte: Optional[int] = Query(None, description="Max count >= value"),
-    max_count_lte: Optional[int] = Query(None, description="Max count <= value"),
+    sort_by: str = Query("count", description="Column to sort by"),
+    sort_asc: bool = Query(False, description="Sort ascending"),
+    page: int = Query(1, ge=1, description="Page number"),
+    page_size: int = Query(DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE, description="Records per page"),
 ):
     """
-    Get query log summary data (queryLogSummary.json).
-    Contains IP/client + domain combinations.
+    Get client summary data (aggregated by Date/IP/Domain/Type/Protocol/Filtered).
     """
-    records = load_json_file("queryLogSummary.json")
-    filtered = filter_records(
-        records, qh=qh, qt=qt, cp=cp, ip=ip, client=client,
-        is_filtered=is_filtered, count_gte=count_gte, count_lte=count_lte,
-        max_count_gte=max_count_gte, max_count_lte=max_count_lte
-    )
-    return {"total": len(filtered), "records": filtered}
+    try:
+        result = query_client_summary(
+            date=date,
+            date_from=date_from,
+            date_to=date_to,
+            ip=ip,
+            client=client,
+            domain=qh,
+            query_type=qt,
+            client_protocol=cp,
+            is_filtered=is_filtered,
+            count_gte=count_gte,
+            count_lte=count_lte,
+            sort_by=sort_by,
+            sort_asc=sort_asc,
+            page=page,
+            page_size=page_size,
+        )
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/api/domain-summary")
 async def get_domain_summary(
-    qh: Optional[str] = Query(None, description="Domain (wildcard case-insensitive search)"),
+    qh: Optional[str] = Query(None, description="Domain (wildcard search)"),
     qt: Optional[str] = Query(None, description="Query type (exact match)"),
     cp: Optional[str] = Query(None, description="Client protocol (exact match)"),
     is_filtered: Optional[bool] = Query(None, description="Filter status"),
@@ -245,23 +211,38 @@ async def get_domain_summary(
     count_lte: Optional[int] = Query(None, description="Count <= value"),
     max_count_gte: Optional[int] = Query(None, description="Max count >= value"),
     max_count_lte: Optional[int] = Query(None, description="Max count <= value"),
+    sort_by: str = Query("count", description="Column to sort by"),
+    sort_asc: bool = Query(False, description="Sort ascending"),
+    page: int = Query(1, ge=1, description="Page number"),
+    page_size: int = Query(DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE, description="Records per page"),
 ):
     """
-    Get domain summary data (queryLogDomainSummary.json).
-    Contains full domain combinations.
+    Get domain summary data (aggregated by Domain/Type/Protocol/Filtered).
+    Includes total count and max count per day.
     """
-    records = load_json_file("queryLogDomainSummary.json")
-    filtered = filter_records(
-        records, qh=qh, qt=qt, cp=cp,
-        is_filtered=is_filtered, count_gte=count_gte, count_lte=count_lte,
-        max_count_gte=max_count_gte, max_count_lte=max_count_lte
-    )
-    return {"total": len(filtered), "records": filtered}
+    try:
+        result = query_domain_summary(
+            domain=qh,
+            query_type=qt,
+            client_protocol=cp,
+            is_filtered=is_filtered,
+            count_gte=count_gte,
+            count_lte=count_lte,
+            max_count_gte=max_count_gte,
+            max_count_lte=max_count_lte,
+            sort_by=sort_by,
+            sort_asc=sort_asc,
+            page=page,
+            page_size=page_size,
+        )
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/api/base-domain-summary")
 async def get_base_domain_summary(
-    qh: Optional[str] = Query(None, description="Base domain (wildcard case-insensitive search)"),
+    qh: Optional[str] = Query(None, description="Base domain (wildcard search)"),
     qt: Optional[str] = Query(None, description="Query type (exact match)"),
     cp: Optional[str] = Query(None, description="Client protocol (exact match)"),
     is_filtered: Optional[bool] = Query(None, description="Filter status"),
@@ -269,18 +250,33 @@ async def get_base_domain_summary(
     count_lte: Optional[int] = Query(None, description="Count <= value"),
     max_count_gte: Optional[int] = Query(None, description="Max count >= value"),
     max_count_lte: Optional[int] = Query(None, description="Max count <= value"),
+    sort_by: str = Query("count", description="Column to sort by"),
+    sort_asc: bool = Query(False, description="Sort ascending"),
+    page: int = Query(1, ge=1, description="Page number"),
+    page_size: int = Query(DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE, description="Records per page"),
 ):
     """
-    Get base domain summary data (queryLogBaseDomainSummary.json).
-    Contains base domain (e.g., amazonaws.com) combinations.
+    Get base domain summary data (aggregated by BaseDomain/Type/Protocol/Filtered).
+    Includes total count and max count per day.
     """
-    records = load_json_file("queryLogBaseDomainSummary.json")
-    filtered = filter_records(
-        records, qh=qh, qt=qt, cp=cp,
-        is_filtered=is_filtered, count_gte=count_gte, count_lte=count_lte,
-        max_count_gte=max_count_gte, max_count_lte=max_count_lte
-    )
-    return {"total": len(filtered), "records": filtered}
+    try:
+        result = query_base_domain_summary(
+            domain=qh,
+            query_type=qt,
+            client_protocol=cp,
+            is_filtered=is_filtered,
+            count_gte=count_gte,
+            count_lte=count_lte,
+            max_count_gte=max_count_gte,
+            max_count_lte=max_count_lte,
+            sort_by=sort_by,
+            sort_asc=sort_asc,
+            page=page,
+            page_size=page_size,
+        )
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # Serve static files and frontend

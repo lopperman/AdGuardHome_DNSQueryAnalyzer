@@ -4,6 +4,7 @@ AdGuard Home Log Fetcher
 
 Retrieves DNS query logs from AdGuard Home running on a remote router.
 Supports incremental fetching to avoid duplicate entries.
+Stores logs in DuckDB database for efficient querying.
 """
 
 import argparse
@@ -12,6 +13,12 @@ import subprocess
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
+
+# Import database module
+from database import (
+    init_database, insert_log_entries, get_last_entry_timestamp,
+    update_client_names, set_metadata, get_metadata
+)
 
 # Directories
 SCRIPT_DIR = Path(__file__).parent
@@ -478,20 +485,48 @@ def fetch_log(log_name: str, log_config: dict, history: dict) -> tuple[int, Opti
 
     print(f"  Total new unique entries: {len(unique_entries)}")
 
-    # Append to local file
-    LOG_DATA_DIR.mkdir(parents=True, exist_ok=True)
-    local_file = LOG_DATA_DIR / log_config["local_file"]
-
-    with open(local_file, "a") as f:
-        for entry in unique_entries:
-            f.write(json.dumps(entry) + "\n")
-
-    print(f"  Appended to {local_file}")
+    # Insert into DuckDB
+    if unique_entries:
+        inserted = insert_log_entries(unique_entries)
+        print(f"  Inserted {inserted} entries into database")
 
     # Get latest timestamp
     latest_ts = unique_entries[-1].get(log_config["timestamp_field"]) if unique_entries else None
 
     return len(unique_entries), latest_ts, new_file_states
+
+
+def fetch_client_names_from_router() -> dict[str, str]:
+    """
+    Fetch client name mappings from router DHCP leases.
+    Returns dict mapping IP addresses to hostnames.
+    """
+    ip_to_hostname = {}
+
+    # Try to fetch DHCP leases
+    returncode, stdout, _ = ssh_command("cat /var/lib/misc/dnsmasq.leases 2>/dev/null")
+    if returncode == 0 and stdout.strip():
+        for line in stdout.strip().split("\n"):
+            parts = line.split()
+            if len(parts) >= 4:
+                ip = parts[2]
+                hostname = parts[3]
+                if hostname != "*":
+                    ip_to_hostname[ip] = hostname
+
+    # Also try nvram dhcp_staticlist for static assignments
+    returncode, stdout, _ = ssh_command("nvram get dhcp_staticlist 2>/dev/null")
+    if returncode == 0 and stdout.strip():
+        entries = stdout.strip().split("<")
+        for entry in entries:
+            if ">" in entry:
+                parts = entry.split(">")
+                if len(parts) >= 3:
+                    mac, ip, hostname = parts[0], parts[1], parts[2]
+                    if hostname and ip:
+                        ip_to_hostname[ip] = hostname
+
+    return ip_to_hostname
 
 
 def display_status(history: dict) -> None:
@@ -535,6 +570,9 @@ def run_fetch(skip_confirmation: bool = False) -> dict:
     LOG_DATA_DIR.mkdir(parents=True, exist_ok=True)
     APP_DATA_DIR.mkdir(parents=True, exist_ok=True)
 
+    # Initialize database
+    init_database()
+
     # Load history
     history = load_fetch_history()
 
@@ -550,6 +588,15 @@ def run_fetch(skip_confirmation: bool = False) -> dict:
             print("Cancelled.")
             result["message"] = "Cancelled by user"
             return result
+
+    # Fetch client names from router and update database
+    print("\nFetching client names from router...")
+    client_names = fetch_client_names_from_router()
+    if client_names:
+        update_client_names(client_names)
+        print(f"  Updated {len(client_names)} client name mappings")
+    else:
+        print("  No client names found")
 
     # Fetch each log type
     fetch_time = datetime.now().isoformat()
