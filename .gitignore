@@ -1,6 +1,7 @@
 # Local data directories
 LogData/
 AppData/
+*.duckdb
 
 # Environment variables
 .env
