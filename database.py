@@ -279,46 +279,47 @@ def query_raw_logs(
     params = []
 
     if date_from:
-        conditions.append("date >= ?")
+        conditions.append("q.date >= ?")
         params.append(date_from)
     if date_to:
-        conditions.append("date <= ?")
+        conditions.append("q.date <= ?")
         params.append(date_to)
     if ip:
-        conditions.append("LOWER(ip) = LOWER(?)")
+        conditions.append("LOWER(q.ip) = LOWER(?)")
         params.append(ip)
     if domain:
-        conditions.append("LOWER(domain) LIKE LOWER(?)")
+        conditions.append("LOWER(q.domain) LIKE LOWER(?)")
         params.append(f"%{domain}%")
     if query_type:
-        conditions.append("LOWER(query_type) = LOWER(?)")
+        conditions.append("LOWER(q.query_type) = LOWER(?)")
         params.append(query_type)
     if client_protocol:
-        conditions.append("LOWER(client_protocol) = LOWER(?)")
+        conditions.append("LOWER(q.client_protocol) = LOWER(?)")
         params.append(client_protocol)
     if is_filtered is not None:
-        conditions.append("is_filtered = ?")
+        conditions.append("q.is_filtered = ?")
         params.append(is_filtered)
     if filter_rule:
-        conditions.append("LOWER(filter_rule) LIKE LOWER(?)")
+        conditions.append("LOWER(q.filter_rule) LIKE LOWER(?)")
         params.append(f"%{filter_rule}%")
     if cached is not None:
-        conditions.append("cached = ?")
+        conditions.append("q.cached = ?")
         params.append(cached)
 
     where_clause = " AND ".join(conditions) if conditions else "1=1"
 
-    # Valid sort columns
+    # Valid sort columns (with q. prefix for the joined query)
     valid_sort = ['timestamp', 'date', 'ip', 'domain', 'query_type', 'client_protocol',
                   'is_filtered', 'elapsed_ns', 'cached']
     if sort_by not in valid_sort:
         sort_by = 'timestamp'
+    sort_col = f'q.{sort_by}'
 
     sort_dir = 'ASC' if sort_asc else 'DESC'
 
     # Get total count
     count_result = conn.execute(f"""
-        SELECT COUNT(*) FROM query_logs WHERE {where_clause}
+        SELECT COUNT(*) FROM query_logs q WHERE {where_clause}
     """, params).fetchone()
     total = count_result[0]
 
@@ -347,7 +348,7 @@ def query_raw_logs(
         FROM query_logs q
         LEFT JOIN client_names c ON q.ip = c.ip
         WHERE {where_clause}
-        ORDER BY {sort_by} {sort_dir}
+        ORDER BY {sort_col} {sort_dir}
         LIMIT ? OFFSET ?
     """, params + [page_size, offset]).fetchall()
 
