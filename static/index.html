@@ -324,7 +324,7 @@
                 </div>
                 <div class="filter-group">
                     <label>Client Name</label>
-                    <input type="text" id="client-client" placeholder="Exact match">
+                    <input type="text" id="client-client" placeholder="Contains...">
                 </div>
                 <div class="filter-group">
                     <label>Query Type (QT)</label>
@@ -546,6 +546,10 @@
                     <input type="text" id="rawLogs-ip" placeholder="Exact match">
                 </div>
                 <div class="filter-group">
+                    <label>Client Name</label>
+                    <input type="text" id="rawLogs-client" placeholder="Contains...">
+                </div>
+                <div class="filter-group">
                     <label>Query Type (QT)</label>
                     <input type="text" id="rawLogs-qt" placeholder="e.g., A, AAAA">
                 </div>
@@ -714,6 +718,9 @@
 
                 const ip = document.getElementById('rawLogs-ip').value.trim();
                 if (ip) params.append('ip', ip);
+
+                const client = document.getElementById('rawLogs-client').value.trim();
+                if (client) params.append('client', client);
 
                 const qt = document.getElementById('rawLogs-qt').value.trim();
                 if (qt) params.append('qt', qt);

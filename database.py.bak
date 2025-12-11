@@ -256,7 +256,6 @@ def query_raw_logs(
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
     ip: Optional[str] = None,
-    client: Optional[str] = None,
     domain: Optional[str] = None,
     query_type: Optional[str] = None,
     client_protocol: Optional[str] = None,
@@ -288,9 +287,6 @@ def query_raw_logs(
     if ip:
         conditions.append("LOWER(q.ip) = LOWER(?)")
         params.append(ip)
-    if client:
-        conditions.append("LOWER(COALESCE(c.hostname, '')) LIKE LOWER(?)")
-        params.append(f"%{client}%")
     if domain:
         conditions.append("LOWER(q.domain) LIKE LOWER(?)")
         params.append(f"%{domain}%")
@@ -323,9 +319,7 @@ def query_raw_logs(
 
     # Get total count
     count_result = conn.execute(f"""
-        SELECT COUNT(*) FROM query_logs q
-        LEFT JOIN client_names c ON q.ip = c.ip
-        WHERE {where_clause}
+        SELECT COUNT(*) FROM query_logs q WHERE {where_clause}
     """, params).fetchone()
     total = count_result[0]
 
@@ -453,10 +447,10 @@ def query_client_summary(
         having_conditions.append("COUNT(*) <= ?")
         having_params.append(count_lte)
 
-    # Client name filter needs to be in HAVING since it's joined (wildcard search)
+    # Client name filter needs to be in HAVING since it's joined
     if client:
-        having_conditions.append("LOWER(COALESCE(c.hostname, '')) LIKE LOWER(?)")
-        having_params.append(f"%{client}%")
+        having_conditions.append("LOWER(COALESCE(c.hostname, '')) = LOWER(?)")
+        having_params.append(client)
 
     having_clause = " AND ".join(having_conditions) if having_conditions else "1=1"
 
@@ -476,7 +470,7 @@ def query_client_summary(
             FROM query_logs q
             LEFT JOIN client_names c ON q.ip = c.ip
             WHERE {where_clause}
-            GROUP BY q.date, q.ip, c.hostname, q.domain, q.query_type, q.client_protocol, q.is_filtered
+            GROUP BY q.date, q.ip, q.domain, q.query_type, q.client_protocol, q.is_filtered
             HAVING {having_clause}
         ) subq
     """
