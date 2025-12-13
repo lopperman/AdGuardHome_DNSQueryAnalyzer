@@ -8,11 +8,12 @@ A toolkit for fetching, storing, and analyzing DNS query logs from AdGuard Home 
 - **DuckDB Storage**: All logs stored in a local DuckDB database for fast analytical queries
 - **Real-time Aggregations**: Summary views computed on-the-fly via SQL - no pre-processing needed
 - **Client Name Resolution**: Automatically maps IP addresses to hostnames using DHCP lease data
+- **Condensed Storage**: Log entries are aggregated by unique combinations of date/IP/client/domain/type/protocol/upstream/filtered/filter_rule with a count field, dramatically reducing storage requirements
 - **Web Dashboard**: Interactive UI with four views:
-  - **Client Summary**: Query counts grouped by date/IP/client/domain
-  - **Domain Summary**: Query counts grouped by full domain with max daily counts
-  - **Base Domain Summary**: Query counts grouped by base domain (e.g., `amazonaws.com`)
-  - **Raw Logs**: Browse individual log entries with full details
+  - **Client Summary**: Query counts grouped by date/IP/client/domain with row actions (delete logs, add to ignore list)
+  - **Domain Summary**: Query counts grouped by date/domain/type/protocol/filtered
+  - **Base Domain Summary**: Query counts grouped by base domain (e.g., `amazonaws.com`) with max daily counts
+  - **Ignored Domains**: Manage domains to exclude from future log imports, with ability to delete existing logs
 - **REST API**: FastAPI-based endpoints for programmatic access
 
 ![Client Summary](https://github.com/lopperman/AdGuardHome_DNSQueryAnalyzer/blob/main/images/ClientSummary.png?raw=true)
@@ -105,44 +106,47 @@ The fetcher:
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/api/stats` | GET | Database statistics (total entries, date range, unique IPs/domains) |
+| `/api/stats` | GET | Database statistics (total records, total requests, date range) |
 | `/api/update-logs` | POST | Fetch new logs from router |
-| `/api/raw-logs` | GET | Query individual log entries |
-| `/api/query-log-summary` | GET | Query client summary (aggregated by date/IP/domain) |
-| `/api/domain-summary` | GET | Query domain summary |
+| `/api/query-log-summary` | GET | Query client summary (aggregated by date/IP/client/domain) |
+| `/api/domain-summary` | GET | Query domain summary (aggregated by date/domain) |
 | `/api/base-domain-summary` | GET | Query base domain summary |
+| `/api/logs/before-date/{date}` | DELETE | Delete all logs before specified date |
+| `/api/logs/by-domain/{domain}` | DELETE | Delete all logs for specified domain |
+| `/api/ignored-domains` | GET | List ignored domains (with optional search filter) |
+| `/api/ignored-domains` | POST | Add domain to ignore list |
+| `/api/ignored-domains/{domain}` | DELETE | Remove domain from ignore list |
 
 ### Query Parameters
 
-**All endpoints support pagination:**
+**All summary endpoints support pagination:**
 - `page` - Page number (default: 1)
 - `page_size` - Records per page (default: 500, max: 2000)
 - `sort_by` - Column to sort by
 - `sort_asc` - Sort ascending (default: false)
 
-**Raw Logs filters:**
-- `date_from` / `date_to` - Date range (YYYY-MM-DD)
-- `ip` - IP address (exact match)
+**Common filters (all summary endpoints):**
 - `qh` - Domain name (wildcard search)
-- `qt` - Query type (A, AAAA, HTTPS, etc.)
-- `cp` - Client protocol (dns, doh, dot)
-- `is_filtered` - Filter status (true/false)
-- `filter_rule` - Filter rule (wildcard search)
-- `cached` - Cached status (true/false)
-
-**Summary filters:**
-- `qh` - Domain name (wildcard search)
-- `qt` - Query type (exact match)
+- `qt` - Query type (wildcard search)
 - `cp` - Client protocol (exact match)
 - `is_filtered` - Filter status (true/false)
 - `count_gte` / `count_lte` - Count range filters
-- `max_count_gte` / `max_count_lte` - Max daily count filters (domain summaries only)
 
 **Client summary additional filters:**
 - `date` - Exact date (YYYY-MM-DD)
 - `date_from` / `date_to` - Date range
 - `ip` - IP address (exact match)
-- `client` - Client hostname (exact match)
+- `client` - Client hostname (wildcard search)
+- `filter_rule` - Filter rule (wildcard search)
+
+**Domain summary additional filters:**
+- `date` - Exact date (YYYY-MM-DD)
+
+**Base domain summary additional filters:**
+- `max_count_gte` / `max_count_lte` - Max daily count filters
+
+**Ignored domains filters:**
+- `search` - Domain name (wildcard search)
 
 ## Directory Structure
 
@@ -164,39 +168,45 @@ AdguardHomeLogs/
 
 ## Data Schema
 
-### Raw Log Fields
+### Query Logs Table (Condensed)
+
+Log entries are stored in a condensed format where each row represents a unique combination of attributes with a count field. This dramatically reduces storage compared to storing individual queries.
 
 | Field | Description |
 |-------|-------------|
-| `timestamp` | Query timestamp with timezone |
 | `date` | Query date (YYYY-MM-DD) |
 | `ip` | Client IP address |
 | `client` | Client hostname (from DHCP) |
 | `domain` | Query domain name |
 | `query_type` | DNS record type (A, AAAA, HTTPS, etc.) |
-| `query_class` | DNS class (usually IN) |
 | `client_protocol` | Protocol used (dns, doh, dot) |
 | `upstream` | DNS upstream server used |
-| `answer` | Raw DNS answer (base64 encoded) |
 | `is_filtered` | Whether the query was blocked |
 | `filter_rule` | Blocking rule (if filtered) |
-| `filter_reason` | Reason code for filtering |
-| `elapsed_ns` | Query time in nanoseconds |
-| `cached` | Whether response was cached |
+| `count` | Number of matching queries |
 
-### Summary Fields
+### Ignored Domains Table
 
 | Field | Description |
 |-------|-------------|
-| `Date` | Query date (client summary only) |
+| `domain` | Domain name to ignore (primary key) |
+| `added_at` | Timestamp when added |
+| `notes` | Optional notes |
+
+### Summary Fields (API Response)
+
+| Field | Description |
+|-------|-------------|
+| `Date` | Query date (client/domain summary) |
 | `IP` | Client IP address (client summary only) |
 | `client` | Client hostname (client summary only) |
 | `QH` | Query host (domain or base domain) |
 | `QT` | Query type |
 | `CP` | Client protocol |
 | `IsFiltered` | Whether queries were blocked |
+| `filterRule` | Filter rule (client summary only) |
 | `count` | Total query count |
-| `maxCount` | Maximum queries in a single day |
+| `maxCount` | Maximum queries in a single day (base domain only) |
 
 ## AdGuard Home Configuration Notes
 

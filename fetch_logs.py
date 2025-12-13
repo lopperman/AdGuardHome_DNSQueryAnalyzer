@@ -17,7 +17,8 @@ from typing import Optional
 # Import database module
 from database import (
     init_database, insert_log_entries, condense_logs,
-    update_client_names, set_metadata, get_metadata
+    update_client_names, set_metadata, get_metadata,
+    get_ignored_domains_set
 )
 
 # Directories
@@ -484,6 +485,18 @@ def fetch_log(log_name: str, log_config: dict, history: dict) -> tuple[int, Opti
             unique_entries.append(entry)
 
     print(f"  Total new unique entries: {len(unique_entries)}")
+
+    # Filter out ignored domains before inserting
+    ignored_domains = get_ignored_domains_set()
+    if ignored_domains:
+        filtered_entries = [
+            entry for entry in unique_entries
+            if entry.get("QH", "").lower() not in ignored_domains
+        ]
+        ignored_count = len(unique_entries) - len(filtered_entries)
+        if ignored_count > 0:
+            print(f"  Filtered out {ignored_count} entries from ignored domains")
+        unique_entries = filtered_entries
 
     # Insert into DuckDB and condense
     if unique_entries:

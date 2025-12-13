@@ -80,6 +80,15 @@ def init_database():
         )
     """)
 
+    # Create ignored domains table
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS ignored_domains (
+            domain VARCHAR PRIMARY KEY,
+            added_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+            notes VARCHAR
+        )
+    """)
+
     conn.close()
     print(f"Database initialized: {DB_FILE}")
 
@@ -806,6 +815,187 @@ def get_database_stats() -> dict:
 
     conn.close()
     return stats
+
+
+# ============================================================================
+# Delete Operations
+# ============================================================================
+
+def delete_logs_before_date(date: str) -> dict:
+    """
+    Delete all query_log records with date before the specified date.
+
+    Args:
+        date: Date string in YYYY-MM-DD format (exclusive - deletes records BEFORE this date)
+
+    Returns:
+        dict with rows_deleted and queries_deleted (sum of counts)
+    """
+    conn = get_connection()
+
+    # Get counts before deletion
+    result = conn.execute("""
+        SELECT COUNT(*), COALESCE(SUM(count), 0)
+        FROM query_logs
+        WHERE date < ?
+    """, [date]).fetchone()
+    rows_to_delete = result[0]
+    queries_to_delete = result[1]
+
+    # Perform deletion
+    conn.execute("DELETE FROM query_logs WHERE date < ?", [date])
+
+    conn.close()
+
+    return {
+        'rows_deleted': rows_to_delete,
+        'requests_deleted': queries_to_delete,
+    }
+
+
+def delete_logs_by_domain(domain: str) -> dict:
+    """
+    Delete all query_log records matching the specified domain (exact match).
+
+    Args:
+        domain: Domain to delete (exact match)
+
+    Returns:
+        dict with rows_deleted and queries_deleted (sum of counts)
+    """
+    conn = get_connection()
+
+    # Get counts before deletion
+    result = conn.execute("""
+        SELECT COUNT(*), COALESCE(SUM(count), 0)
+        FROM query_logs
+        WHERE domain = ?
+    """, [domain]).fetchone()
+    rows_to_delete = result[0]
+    queries_to_delete = result[1]
+
+    # Perform deletion
+    conn.execute("DELETE FROM query_logs WHERE domain = ?", [domain])
+
+    conn.close()
+
+    return {
+        'rows_deleted': rows_to_delete,
+        'requests_deleted': queries_to_delete,
+    }
+
+
+# ============================================================================
+# Ignored Domains Management
+# ============================================================================
+
+def add_ignored_domain(domain: str, notes: str = None) -> bool:
+    """
+    Add a domain to the ignored_domains table.
+
+    Args:
+        domain: Domain to ignore
+        notes: Optional notes about why it's ignored
+
+    Returns:
+        True if added, False if already exists
+    """
+    conn = get_connection()
+
+    try:
+        conn.execute("""
+            INSERT INTO ignored_domains (domain, notes, added_at)
+            VALUES (?, ?, CURRENT_TIMESTAMP)
+        """, [domain, notes])
+        conn.close()
+        return True
+    except Exception:
+        conn.close()
+        return False
+
+
+def remove_ignored_domain(domain: str) -> bool:
+    """
+    Remove a domain from the ignored_domains table.
+
+    Args:
+        domain: Domain to remove from ignore list
+
+    Returns:
+        True if removed, False if not found
+    """
+    conn = get_connection()
+
+    result = conn.execute("""
+        DELETE FROM ignored_domains WHERE domain = ?
+    """, [domain])
+
+    # Check if any rows were affected
+    deleted = conn.execute("SELECT changes()").fetchone()[0]
+
+    conn.close()
+    return deleted > 0
+
+
+def get_ignored_domains(search: str = None) -> list[dict]:
+    """
+    Get all ignored domains with their log counts.
+
+    Args:
+        search: Optional wildcard search filter (case-insensitive)
+
+    Returns:
+        List of dicts with domain, added_at, notes, log_count
+    """
+    conn = get_connection()
+
+    # Build query with optional search filter
+    query = """
+        SELECT
+            i.domain,
+            i.added_at,
+            i.notes,
+            COALESCE(SUM(q.count), 0) as log_count
+        FROM ignored_domains i
+        LEFT JOIN query_logs q ON LOWER(q.domain) = LOWER(i.domain)
+    """
+    params = []
+
+    if search:
+        query += " WHERE LOWER(i.domain) LIKE LOWER(?)"
+        params.append(f"%{search}%")
+
+    query += " GROUP BY i.domain, i.added_at, i.notes ORDER BY i.domain"
+
+    results = conn.execute(query, params).fetchall()
+
+    conn.close()
+
+    return [
+        {
+            'domain': row[0],
+            'added_at': row[1].isoformat() if row[1] else '',
+            'notes': row[2] or '',
+            'log_count': row[3],
+        }
+        for row in results
+    ]
+
+
+def get_ignored_domains_set() -> set[str]:
+    """
+    Get all ignored domains as a set for fast lookup.
+
+    Returns:
+        Set of domain strings
+    """
+    conn = get_connection()
+
+    results = conn.execute("SELECT domain FROM ignored_domains").fetchall()
+
+    conn.close()
+
+    return {row[0] for row in results}
 
 
 if __name__ == "__main__":

@@ -223,6 +223,164 @@
             text-align: right;
             font-family: monospace;
         }
+        .action-cell {
+            text-align: center;
+            width: 40px;
+        }
+        .action-btn {
+            background: none;
+            border: none;
+            cursor: pointer;
+            font-size: 20px;
+            padding: 2px 6px;
+            border-radius: 4px;
+            transition: background 0.2s;
+        }
+        .action-btn:hover {
+            background: #e0e0e0;
+        }
+        /* Modal styles */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.5);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 2000;
+        }
+        .modal-overlay.active {
+            display: flex;
+        }
+        .modal {
+            background: white;
+            border-radius: 8px;
+            padding: 24px;
+            max-width: 500px;
+            width: 90%;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+        }
+        .modal h3 {
+            margin: 0 0 16px 0;
+            color: #333;
+        }
+        .modal-context {
+            background: #f5f5f5;
+            padding: 12px;
+            border-radius: 4px;
+            margin-bottom: 16px;
+            font-size: 13px;
+        }
+        .modal-context strong {
+            color: #333;
+        }
+        .modal-actions {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .modal-action-btn {
+            padding: 12px 16px;
+            font-size: 14px;
+            cursor: pointer;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            background: white;
+            text-align: left;
+            transition: background 0.2s, border-color 0.2s;
+        }
+        .modal-action-btn:hover {
+            background: #f9f9f9;
+            border-color: #4a90d9;
+        }
+        .modal-action-btn.danger {
+            border-color: #dc3545;
+            color: #dc3545;
+        }
+        .modal-action-btn.danger:hover {
+            background: #fff5f5;
+        }
+        .modal-action-btn .action-title {
+            font-weight: 600;
+            display: block;
+        }
+        .modal-action-btn .action-desc {
+            font-size: 12px;
+            color: #666;
+            margin-top: 4px;
+        }
+        .modal-close {
+            margin-top: 16px;
+            padding: 10px 20px;
+            background: #6c757d;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            width: 100%;
+        }
+        .modal-close:hover {
+            background: #5a6268;
+        }
+        /* Ignored domains table styles */
+        .ignored-domains-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+        }
+        .add-domain-form {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            padding: 15px;
+            background: #f9f9f9;
+            border-radius: 4px;
+        }
+        .add-domain-form input {
+            flex: 1;
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        .add-domain-form button {
+            padding: 8px 16px;
+            background: #28a745;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .add-domain-form button:hover {
+            background: #218838;
+        }
+        .delete-btn {
+            background: #dc3545;
+            color: white;
+            border: none;
+            padding: 4px 8px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            width: 75px;
+            text-align: center;
+        }
+        .delete-btn:hover {
+            background: #c82333;
+        }
+        .delete-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        .action-buttons {
+            display: flex;
+            gap: 4px;
+            white-space: nowrap;
+        }
         .pagination {
             display: flex;
             align-items: center;
@@ -304,6 +462,7 @@
             <button class="tab active" onclick="switchTab('client')">Client Summary</button>
             <button class="tab" onclick="switchTab('domain')">Domain Summary</button>
             <button class="tab" onclick="switchTab('baseDomain')">Base Domain Summary</button>
+            <button class="tab" onclick="switchTab('ignored')">Ignored Domains</button>
         </div>
 
         <!-- Client Summary Panel -->
@@ -363,6 +522,7 @@
                 <table id="client-table">
                     <thead>
                         <tr>
+                            <th class="action-cell">Act</th>
                             <th onclick="sortTable('client', 'Date')">Date <span class="sort-indicator">&#9650;</span></th>
                             <th onclick="sortTable('client', 'IP')">IP <span class="sort-indicator">&#9650;</span></th>
                             <th onclick="sortTable('client', 'client')">Client <span class="sort-indicator">&#9650;</span></th>
@@ -526,6 +686,67 @@
             </div>
         </div>
 
+        <!-- Ignored Domains Panel -->
+        <div id="ignored-panel" class="panel">
+            <div class="ignored-domains-header">
+                <h3>Ignored Domains</h3>
+                <p style="color: #666; margin: 0;">Domains in this list will be excluded when fetching new logs.</p>
+            </div>
+            <div class="add-domain-form">
+                <input type="text" id="new-ignored-domain" placeholder="Enter domain to ignore (e.g., example.com)">
+                <input type="text" id="new-ignored-notes" placeholder="Notes (optional)" style="max-width: 200px;">
+                <button onclick="addIgnoredDomain()">Add Domain</button>
+            </div>
+            <div class="filters" style="margin-bottom: 15px;">
+                <div class="filter-group">
+                    <label>Search Domain</label>
+                    <input type="text" id="ignored-search" placeholder="Contains...">
+                </div>
+                <div class="filter-actions">
+                    <button class="search-btn" onclick="loadIgnoredDomains()">Search</button>
+                    <button class="clear-btn" onclick="clearIgnoredSearch()">Clear</button>
+                </div>
+            </div>
+            <div class="results-info" id="ignored-results-info"></div>
+            <div class="table-container">
+                <table id="ignored-table">
+                    <thead>
+                        <tr>
+                            <th>Domain</th>
+                            <th>Notes</th>
+                            <th>Added</th>
+                            <th style="width: 100px;">Logs</th>
+                            <th style="width: 160px;">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Row Action Modal -->
+    <div class="modal-overlay" id="actionModal">
+        <div class="modal">
+            <h3>Row Actions</h3>
+            <div class="modal-context" id="modalContext"></div>
+            <div class="modal-actions">
+                <button class="modal-action-btn danger" onclick="deleteLogsBeforeDate()">
+                    <span class="action-title">Delete Logs Before This Date</span>
+                    <span class="action-desc">Remove all log records prior to <span id="modal-date"></span></span>
+                </button>
+                <button class="modal-action-btn danger" onclick="deleteLogsByDomain()">
+                    <span class="action-title">Delete Logs For This Domain</span>
+                    <span class="action-desc">Remove all log records for <span id="modal-domain"></span></span>
+                </button>
+                <button class="modal-action-btn" onclick="addDomainToIgnored()">
+                    <span class="action-title">Add Domain to Ignore List</span>
+                    <span class="action-desc">Prevent future logs for <span id="modal-domain2"></span></span>
+                </button>
+            </div>
+            <button class="modal-close" onclick="closeModal()">Cancel</button>
+        </div>
     </div>
 
     <div class="loading-overlay" id="loadingOverlay">
@@ -537,8 +758,12 @@
         const state = {
             client: { data: [], sortColumn: 'count', sortAsc: false, page: 1, totalPages: 1, total: 0 },
             domain: { data: [], sortColumn: 'count', sortAsc: false, page: 1, totalPages: 1, total: 0 },
-            baseDomain: { data: [], sortColumn: 'count', sortAsc: false, page: 1, totalPages: 1, total: 0 }
+            baseDomain: { data: [], sortColumn: 'count', sortAsc: false, page: 1, totalPages: 1, total: 0 },
+            ignored: { data: [] }
         };
+
+        // Currently selected row for modal actions
+        let selectedRow = null;
 
         const PAGE_SIZE = 500;
 
@@ -616,7 +841,9 @@
             document.getElementById(`${tabName}-panel`).classList.add('active');
 
             // Load data if empty
-            if (state[tabName].data.length === 0) {
+            if (tabName === 'ignored') {
+                loadIgnoredDomains();
+            } else if (state[tabName].data.length === 0) {
                 searchData(tabName);
             }
         }
@@ -815,7 +1042,8 @@
 
         function getColumnIndex(tabName, column) {
             const columns = {
-                client: ['Date', 'IP', 'client', 'QH', 'QT', 'CP', 'IsFiltered', 'filterRule', 'count'],
+                // Action column (index 0) is not sortable, so we start from index 1
+                client: ['_action', 'Date', 'IP', 'client', 'QH', 'QT', 'CP', 'IsFiltered', 'filterRule', 'count'],
                 domain: ['Date', 'QH', 'QT', 'CP', 'IsFiltered', 'count'],
                 baseDomain: ['QH', 'QT', 'CP', 'IsFiltered', 'count', 'maxCount']
             };
@@ -827,9 +1055,10 @@
             tbody.innerHTML = '';
 
             if (tabName === 'client') {
-                data.forEach(row => {
+                data.forEach((row, index) => {
                     const tr = document.createElement('tr');
                     tr.innerHTML = `
+                        <td class="action-cell"><button class="action-btn" onclick="openActionModal(${index})" title="Actions">&#9881;</button></td>
                         <td>${escapeHtml(row.Date || '')}</td>
                         <td>${escapeHtml(row.IP || '')}</td>
                         <td>${escapeHtml(row.client || '')}</td>
@@ -878,6 +1107,269 @@
             return div.innerHTML;
         }
 
+        // Modal functions
+        function openActionModal(rowIndex) {
+            selectedRow = state.client.data[rowIndex];
+            if (!selectedRow) return;
+
+            // Update modal context
+            document.getElementById('modalContext').innerHTML = `
+                <strong>Date:</strong> ${escapeHtml(selectedRow.Date || '')}<br>
+                <strong>Domain:</strong> ${escapeHtml(selectedRow.QH || '')}<br>
+                <strong>IP:</strong> ${escapeHtml(selectedRow.IP || '')}
+                ${selectedRow.client ? ` (${escapeHtml(selectedRow.client)})` : ''}
+            `;
+            document.getElementById('modal-date').textContent = selectedRow.Date || '';
+            document.getElementById('modal-domain').textContent = selectedRow.QH || '';
+            document.getElementById('modal-domain2').textContent = selectedRow.QH || '';
+
+            document.getElementById('actionModal').classList.add('active');
+        }
+
+        function closeModal() {
+            document.getElementById('actionModal').classList.remove('active');
+            selectedRow = null;
+        }
+
+        async function deleteLogsBeforeDate() {
+            if (!selectedRow || !selectedRow.Date) {
+                showStatus('No date selected', 'error');
+                return;
+            }
+
+            const date = selectedRow.Date;
+
+            if (!confirm(`Are you sure you want to delete ALL logs BEFORE ${date}?\n\nThis action cannot be undone.`)) {
+                return;
+            }
+
+            closeModal();
+            showLoading(true);
+
+            try {
+                const response = await fetch(`/api/logs/before-date/${date}`, { method: 'DELETE' });
+                const result = await response.json();
+
+                if (result.success) {
+                    showStatus(result.message, 'success');
+                    loadStats();
+                    searchData('client', 1);
+                } else {
+                    showStatus(result.message || 'Delete failed', 'error');
+                }
+            } catch (error) {
+                showStatus(`Error: ${error.message}`, 'error');
+            } finally {
+                showLoading(false);
+            }
+        }
+
+        async function deleteLogsByDomain() {
+            if (!selectedRow || !selectedRow.QH) {
+                showStatus('No domain selected', 'error');
+                return;
+            }
+
+            const domain = selectedRow.QH;
+
+            if (!confirm(`Are you sure you want to delete ALL logs for "${domain}"?\n\nThis action cannot be undone.`)) {
+                return;
+            }
+
+            closeModal();
+            showLoading(true);
+
+            try {
+                const response = await fetch(`/api/logs/by-domain/${encodeURIComponent(domain)}`, { method: 'DELETE' });
+                const result = await response.json();
+
+                if (result.success) {
+                    showStatus(result.message, 'success');
+                    loadStats();
+                    searchData('client', 1);
+                } else {
+                    showStatus(result.message || 'Delete failed', 'error');
+                }
+            } catch (error) {
+                showStatus(`Error: ${error.message}`, 'error');
+            } finally {
+                showLoading(false);
+            }
+        }
+
+        async function addDomainToIgnored() {
+            if (!selectedRow || !selectedRow.QH) {
+                showStatus('No domain selected', 'error');
+                return;
+            }
+
+            const domain = selectedRow.QH;
+
+            closeModal();
+            showLoading(true);
+
+            try {
+                const response = await fetch('/api/ignored-domains', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ domain: domain, notes: 'Added from Client Summary' })
+                });
+                const result = await response.json();
+
+                if (result.success) {
+                    showStatus(result.message, 'success');
+                } else {
+                    showStatus(result.message || 'Add failed', 'error');
+                }
+            } catch (error) {
+                showStatus(`Error: ${error.message}`, 'error');
+            } finally {
+                showLoading(false);
+            }
+        }
+
+        // Ignored domains functions
+        async function loadIgnoredDomains() {
+            showLoading(true);
+
+            try {
+                const search = document.getElementById('ignored-search').value.trim();
+                const params = new URLSearchParams();
+                if (search) params.append('search', search);
+
+                const response = await fetch(`/api/ignored-domains?${params.toString()}`);
+                const result = await response.json();
+
+                state.ignored.data = result.domains || [];
+                renderIgnoredDomains();
+                document.getElementById('ignored-results-info').textContent =
+                    `${result.count || 0} ignored domain(s)`;
+            } catch (error) {
+                showStatus(`Error loading ignored domains: ${error.message}`, 'error');
+            } finally {
+                showLoading(false);
+            }
+        }
+
+        function clearIgnoredSearch() {
+            document.getElementById('ignored-search').value = '';
+            loadIgnoredDomains();
+        }
+
+        function renderIgnoredDomains() {
+            const tbody = document.querySelector('#ignored-table tbody');
+            tbody.innerHTML = '';
+
+            state.ignored.data.forEach(row => {
+                const tr = document.createElement('tr');
+                const addedDate = row.added_at ? new Date(row.added_at).toLocaleString() : '';
+                const logCount = row.log_count || 0;
+                const hasLogs = logCount > 0;
+                const deleteLogsBtn = hasLogs
+                    ? `<button class="delete-btn" onclick="deleteLogsForIgnoredDomain('${escapeHtml(row.domain || '')}')">Del Logs</button>`
+                    : `<button class="delete-btn" disabled>No Logs</button>`;
+
+                tr.innerHTML = `
+                    <td class="domain-cell" title="${escapeHtml(row.domain || '')}">${escapeHtml(row.domain || '')}</td>
+                    <td>${escapeHtml(row.notes || '')}</td>
+                    <td>${addedDate}</td>
+                    <td class="count-cell">${logCount.toLocaleString()}</td>
+                    <td>
+                        <div class="action-buttons">
+                            ${deleteLogsBtn}
+                            <button class="delete-btn" onclick="removeIgnoredDomain('${escapeHtml(row.domain || '')}')">Remove</button>
+                        </div>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        async function deleteLogsForIgnoredDomain(domain) {
+            if (!confirm(`Delete all ${state.ignored.data.find(d => d.domain === domain)?.log_count?.toLocaleString() || ''} log entries for "${domain}"?\n\nThis action cannot be undone.`)) {
+                return;
+            }
+
+            showLoading(true);
+
+            try {
+                const response = await fetch(`/api/logs/by-domain/${encodeURIComponent(domain)}`, { method: 'DELETE' });
+                const result = await response.json();
+
+                if (result.success) {
+                    showStatus(result.message, 'success');
+                    loadStats();
+                    loadIgnoredDomains();
+                } else {
+                    showStatus(result.message || 'Delete failed', 'error');
+                }
+            } catch (error) {
+                showStatus(`Error: ${error.message}`, 'error');
+            } finally {
+                showLoading(false);
+            }
+        }
+
+        async function addIgnoredDomain() {
+            const domainInput = document.getElementById('new-ignored-domain');
+            const notesInput = document.getElementById('new-ignored-notes');
+            const domain = domainInput.value.trim();
+            const notes = notesInput.value.trim();
+
+            if (!domain) {
+                showStatus('Please enter a domain', 'error');
+                return;
+            }
+
+            showLoading(true);
+
+            try {
+                const response = await fetch('/api/ignored-domains', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ domain, notes: notes || null })
+                });
+                const result = await response.json();
+
+                if (result.success) {
+                    showStatus(result.message, 'success');
+                    domainInput.value = '';
+                    notesInput.value = '';
+                    loadIgnoredDomains();
+                } else {
+                    showStatus(result.message || 'Add failed', 'error');
+                }
+            } catch (error) {
+                showStatus(`Error: ${error.message}`, 'error');
+            } finally {
+                showLoading(false);
+            }
+        }
+
+        async function removeIgnoredDomain(domain) {
+            if (!confirm(`Remove "${domain}" from ignored domains?`)) {
+                return;
+            }
+
+            showLoading(true);
+
+            try {
+                const response = await fetch(`/api/ignored-domains/${encodeURIComponent(domain)}`, { method: 'DELETE' });
+                const result = await response.json();
+
+                if (result.success) {
+                    showStatus(result.message, 'success');
+                    loadIgnoredDomains();
+                } else {
+                    showStatus(result.message || 'Remove failed', 'error');
+                }
+            } catch (error) {
+                showStatus(`Error: ${error.message}`, 'error');
+            } finally {
+                showLoading(false);
+            }
+        }
+
         // Load initial data
         document.addEventListener('DOMContentLoaded', () => {
             loadStats();
@@ -890,7 +1382,11 @@
                 if (e.key === 'Enter') {
                     const panel = input.closest('.panel');
                     const tabName = panel.id.replace('-panel', '');
-                    searchData(tabName);
+                    if (tabName === 'ignored') {
+                        loadIgnoredDomains();
+                    } else {
+                        searchData(tabName);
+                    }
                 }
             });
         });

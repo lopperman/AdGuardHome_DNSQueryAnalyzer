@@ -19,7 +19,9 @@ from pydantic import BaseModel
 # Import database module
 from database import (
     init_database, query_client_summary,
-    query_domain_summary, query_base_domain_summary, get_database_stats
+    query_domain_summary, query_base_domain_summary, get_database_stats,
+    delete_logs_before_date, delete_logs_by_domain,
+    add_ignored_domain, remove_ignored_domain, get_ignored_domains
 )
 
 # Load .env configuration
@@ -74,6 +76,16 @@ class OperationResponse(BaseModel):
 
 class FetchResponse(OperationResponse):
     entries_fetched: int = 0
+
+
+class DeleteResponse(OperationResponse):
+    rows_deleted: int = 0
+    requests_deleted: int = 0
+
+
+class IgnoredDomainRequest(BaseModel):
+    domain: str
+    notes: str = None
 
 
 # Pagination defaults
@@ -234,6 +246,88 @@ async def get_base_domain_summary(
             page_size=page_size,
         )
         return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# Delete operations
+@app.delete("/api/logs/before-date/{date}", response_model=DeleteResponse)
+async def api_delete_logs_before_date(date: str):
+    """Delete all log records before the specified date."""
+    try:
+        result = delete_logs_before_date(date)
+        return DeleteResponse(
+            success=True,
+            message=f"Deleted {result['rows_deleted']:,} rows ({result['requests_deleted']:,} requests) before {date}",
+            rows_deleted=result['rows_deleted'],
+            requests_deleted=result['requests_deleted']
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/logs/by-domain/{domain:path}", response_model=DeleteResponse)
+async def api_delete_logs_by_domain(domain: str):
+    """Delete all log records matching the specified domain."""
+    try:
+        result = delete_logs_by_domain(domain)
+        return DeleteResponse(
+            success=True,
+            message=f"Deleted {result['rows_deleted']:,} rows ({result['requests_deleted']:,} requests) for domain '{domain}'",
+            rows_deleted=result['rows_deleted'],
+            requests_deleted=result['requests_deleted']
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# Ignored domains management
+@app.get("/api/ignored-domains")
+async def api_get_ignored_domains(
+    search: Optional[str] = Query(None, description="Wildcard search filter")
+):
+    """Get list of all ignored domains."""
+    try:
+        domains = get_ignored_domains(search=search)
+        return {"domains": domains, "count": len(domains)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/ignored-domains", response_model=OperationResponse)
+async def api_add_ignored_domain(request: IgnoredDomainRequest):
+    """Add a domain to the ignore list."""
+    try:
+        success = add_ignored_domain(request.domain, request.notes)
+        if success:
+            return OperationResponse(
+                success=True,
+                message=f"Added '{request.domain}' to ignored domains"
+            )
+        else:
+            return OperationResponse(
+                success=False,
+                message=f"Domain '{request.domain}' already exists in ignored domains"
+            )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/ignored-domains/{domain:path}", response_model=OperationResponse)
+async def api_remove_ignored_domain(domain: str):
+    """Remove a domain from the ignore list."""
+    try:
+        success = remove_ignored_domain(domain)
+        if success:
+            return OperationResponse(
+                success=True,
+                message=f"Removed '{domain}' from ignored domains"
+            )
+        else:
+            return OperationResponse(
+                success=False,
+                message=f"Domain '{domain}' not found in ignored domains"
+            )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
