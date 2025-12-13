@@ -4,18 +4,16 @@ A toolkit for fetching, storing, and analyzing DNS query logs from AdGuard Home 
 
 ## Features
 
-- [test](/images.UpdateLogs.png){:target="_blank" rel="noopener"}
-
 - **Incremental Log Fetching**: [Retrieves DNS query logs](/images/UpdateLogs.png) from AdGuard Home via SSH, tracking byte offsets to only transfer new data
-- **DuckDB Storage**: All logs stored in a local DuckDB database for fast analytical queries
+- **DuckDB Storage**: All logs stored in a local [DuckDB database](https://duckdb.org/) for fast analytical queries
 - **Real-time Aggregations**: Summary views computed on-the-fly via SQL - no pre-processing needed
 - **Client Name Resolution**: Automatically maps IP addresses to hostnames using DHCP lease data
 - **Condensed Storage**: Log entries are aggregated by unique combinations of date/IP/client/domain/type/protocol/upstream/filtered/filter_rule with a count field, dramatically reducing storage requirements
 - **Web Dashboard**: Interactive UI with four views:
-  - **[Client Summary](https://github.com/lopperman/AdGuardHome_DNSQueryAnalyzer/blob/main/images/ClientSummary.png)**: Query counts grouped by date/IP/client/domain with row actions (delete logs, add to ignore list)
-  - **[Domain Summary](https://github.com/lopperman/AdGuardHome_DNSQueryAnalyzer/blob/main/images/DomainSummary.png)**: Query counts grouped by date/domain/type/protocol/filtered
-  - **[Base Domain Summary](https://github.com/lopperman/AdGuardHome_DNSQueryAnalyzer/blob/main/images/BaseDomainSummary.png)**: Query counts grouped by base domain (e.g., `amazonaws.com`) with max daily counts
-  - **[Ignored Domains](https://github.com/lopperman/AdGuardHome_DNSQueryAnalyzer/blob/main/images/IgnoredDomains.png)**: Manage domains to exclude from future log imports, with ability to delete existing logs
+  - **[Client Summary](/images/ClientSummary.png)**: Query counts grouped by date/IP/client/domain with row actions (delete logs, add to ignore list)
+  - **[Domain Summary](/images/DomainSummary.png)**: Query counts grouped by date/domain/type/protocol/filtered
+  - **[Base Domain Summary](/images/BaseDomainSummary.png)**: Query counts grouped by base domain (e.g., `amazonaws.com`) with max daily counts
+  - **[Ignored Domains](/images/IgnoredDomains.png)**: Manage domains to exclude from future log imports, with ability to delete existing logs
 - **REST API**: FastAPI-based endpoints for programmatic access
 
 ![Client Summary](/images/ClientSummary.png?raw=true)
@@ -33,7 +31,15 @@ A toolkit for fetching, storing, and analyzing DNS query logs from AdGuard Home 
 - - ![**](/images/RowActions.png)
 
 
-![Fetch Logs](https://github.com/lopperman/AdGuardHome_DNSQueryAnalyzer/blob/main/images/fetch_logs.png?raw=true)
+### - **Fetch AdGuard Home Logs from router**
+
+- Logs are fetched from AdGuard Home via SSH to your router, tracking byte offsets to only transfer new data
+  - Logs can be fetched by clicking the [Update Logs](/images/UpdateLogs.png) button, or
+
+  - By manually running ```./fetch_logs.sh``` 
+
+     ![Fetch Logs](/images/fetch_logs.png?raw=true)
+---
 
 ## Prerequisites
 
