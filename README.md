@@ -4,19 +4,32 @@ A toolkit for fetching, storing, and analyzing DNS query logs from AdGuard Home 
 
 ## Features
 
-- **Incremental Log Fetching**: Retrieves DNS query logs from AdGuard Home via SSH, tracking byte offsets to only transfer new data
+- **Incremental Log Fetching**: [Retrieves DNS query logs](/images/UpdateLogs.png) from AdGuard Home via SSH, tracking byte offsets to only transfer new data
 - **DuckDB Storage**: All logs stored in a local DuckDB database for fast analytical queries
 - **Real-time Aggregations**: Summary views computed on-the-fly via SQL - no pre-processing needed
 - **Client Name Resolution**: Automatically maps IP addresses to hostnames using DHCP lease data
 - **Condensed Storage**: Log entries are aggregated by unique combinations of date/IP/client/domain/type/protocol/upstream/filtered/filter_rule with a count field, dramatically reducing storage requirements
 - **Web Dashboard**: Interactive UI with four views:
-  - **Client Summary**: Query counts grouped by date/IP/client/domain with row actions (delete logs, add to ignore list)
-  - **Domain Summary**: Query counts grouped by date/domain/type/protocol/filtered
-  - **Base Domain Summary**: Query counts grouped by base domain (e.g., `amazonaws.com`) with max daily counts
-  - **Ignored Domains**: Manage domains to exclude from future log imports, with ability to delete existing logs
+  - **[Client Summary](https://github.com/lopperman/AdGuardHome_DNSQueryAnalyzer/blob/main/images/ClientSummary.png)**: Query counts grouped by date/IP/client/domain with row actions (delete logs, add to ignore list)
+  - **[Domain Summary](https://github.com/lopperman/AdGuardHome_DNSQueryAnalyzer/blob/main/images/DomainSummary.png)**: Query counts grouped by date/domain/type/protocol/filtered
+  - **[Base Domain Summary](https://github.com/lopperman/AdGuardHome_DNSQueryAnalyzer/blob/main/images/BaseDomainSummary.png)**: Query counts grouped by base domain (e.g., `amazonaws.com`) with max daily counts
+  - **[Ignored Domains](https://github.com/lopperman/AdGuardHome_DNSQueryAnalyzer/blob/main/images/IgnoredDomains.png)**: Manage domains to exclude from future log imports, with ability to delete existing logs
 - **REST API**: FastAPI-based endpoints for programmatic access
 
-![Client Summary](https://github.com/lopperman/AdGuardHome_DNSQueryAnalyzer/blob/main/images/ClientSummary.png?raw=true)
+![Client Summary](/images/ClientSummary.png?raw=true)
+
+## Domain Research and Imported Log Management
+
+### - **Research Domains**
+- Click 'search' icon to lookup information about privacy & trackers, security, general domain
+
+- - ![**](/images/ResearchDomain.png)
+
+### - **Manage Imported Data**
+- Click 'gear' icon for imported data options
+
+- - ![**](/images/RowActions.png)
+
 
 ![Fetch Logs](https://github.com/lopperman/AdGuardHome_DNSQueryAnalyzer/blob/main/images/fetch_logs.png?raw=true)
 
