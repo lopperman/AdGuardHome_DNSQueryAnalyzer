@@ -73,7 +73,7 @@ A toolkit for fetching, storing, and analyzing DNS query logs from AdGuard Home 
 
    # Web server settings (optional)
    WEB_HOST=0.0.0.0
-   WEB_PORT=8080
+   WEB_PORT=8080git 
 
    # Fetch settings (optional)
    FETCH_CHUNK_SIZE=1048576
