@@ -1150,7 +1150,7 @@
                     const tr = document.createElement('tr');
                     tr.innerHTML = `
                         <td class="action-cell">
-                            <button class="action-btn" onclick="openActionModal('client', ${index})" title="Actions">&#9881;</button>
+                            <button class="action-btn" onclick="openActionModal(${index})" title="Actions">&#9881;</button>
                             <button class="research-btn" onclick="openResearchModal('${escapeHtml(row.QH || '').replace(/'/g, "\\'")}')" title="Research Domain">&#128269;</button>
                         </td>
                         <td>${escapeHtml(row.Date || '')}</td>
@@ -1166,11 +1166,10 @@
                     tbody.appendChild(tr);
                 });
             } else if (tabName === 'domain') {
-                data.forEach((row, index) => {
+                data.forEach(row => {
                     const tr = document.createElement('tr');
                     tr.innerHTML = `
                         <td class="action-cell">
-                            <button class="action-btn" onclick="openActionModal('domain', ${index})" title="Actions">&#9881;</button>
                             <button class="research-btn" onclick="openResearchModal('${escapeHtml(row.QH || '').replace(/'/g, "\\'")}')" title="Research Domain">&#128269;</button>
                         </td>
                         <td>${escapeHtml(row.Date || '')}</td>
@@ -1209,20 +1208,17 @@
         }
 
         // Modal functions
-        function openActionModal(tabName, rowIndex) {
-            selectedRow = state[tabName].data[rowIndex];
+        function openActionModal(rowIndex) {
+            selectedRow = state.client.data[rowIndex];
             if (!selectedRow) return;
 
-            // Update modal context - handle fields that may not exist in all views
-            let contextHtml = `<strong>Date:</strong> ${escapeHtml(selectedRow.Date || '')}<br>
-                <strong>Domain:</strong> ${escapeHtml(selectedRow.QH || '')}`;
-            if (selectedRow.IP) {
-                contextHtml += `<br><strong>IP:</strong> ${escapeHtml(selectedRow.IP)}`;
-                if (selectedRow.client) {
-                    contextHtml += ` (${escapeHtml(selectedRow.client)})`;
-                }
-            }
-            document.getElementById('modalContext').innerHTML = contextHtml;
+            // Update modal context
+            document.getElementById('modalContext').innerHTML = `
+                <strong>Date:</strong> ${escapeHtml(selectedRow.Date || '')}<br>
+                <strong>Domain:</strong> ${escapeHtml(selectedRow.QH || '')}<br>
+                <strong>IP:</strong> ${escapeHtml(selectedRow.IP || '')}
+                ${selectedRow.client ? ` (${escapeHtml(selectedRow.client)})` : ''}
+            `;
             document.getElementById('modal-date').textContent = selectedRow.Date || '';
             document.getElementById('modal-domain').textContent = selectedRow.QH || '';
             document.getElementById('modal-domain2').textContent = selectedRow.QH || '';
