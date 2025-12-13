@@ -4,6 +4,8 @@ A toolkit for fetching, storing, and analyzing DNS query logs from AdGuard Home 
 
 ## Features
 
+- [test](/images.UpdateLogs.png){:target="_blank" rel="noopener"}
+
 - **Incremental Log Fetching**: [Retrieves DNS query logs](/images/UpdateLogs.png) from AdGuard Home via SSH, tracking byte offsets to only transfer new data
 - **DuckDB Storage**: All logs stored in a local DuckDB database for fast analytical queries
 - **Real-time Aggregations**: Summary views computed on-the-fly via SQL - no pre-processing needed
