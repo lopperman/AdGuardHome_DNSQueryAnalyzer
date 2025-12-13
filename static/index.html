@@ -223,6 +223,14 @@
             text-align: right;
             font-family: monospace;
         }
+        .filter-rule-cell {
+            max-width: 250px;
+            width: 250px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: normal;
+            word-wrap: break-word;
+        }
         .action-cell {
             text-align: center;
             width: 40px;
@@ -1066,7 +1074,7 @@
                         <td>${escapeHtml(row.QT || '')}</td>
                         <td>${escapeHtml(row.CP || '')}</td>
                         <td class="${row.IsFiltered ? 'filtered-true' : 'filtered-false'}">${row.IsFiltered ? 'Yes' : 'No'}</td>
-                        <td class="domain-cell" title="${escapeHtml(row.filterRule || '')}">${escapeHtml(row.filterRule || '')}</td>
+                        <td class="filter-rule-cell" title="${escapeHtml(row.filterRule || '')}">${escapeHtml(row.filterRule || '')}</td>
                         <td class="count-cell">${(row.count || 0).toLocaleString()}</td>
                     `;
                     tbody.appendChild(tr);
