@@ -18,7 +18,7 @@ from pydantic import BaseModel
 
 # Import database module
 from database import (
-    init_database, query_raw_logs, query_client_summary,
+    init_database, query_client_summary,
     query_domain_summary, query_base_domain_summary, get_database_stats
 )
 
@@ -116,60 +116,18 @@ async def get_stats():
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/api/raw-logs")
-async def get_raw_logs(
-    date_from: Optional[str] = Query(None, description="Start date (YYYY-MM-DD)"),
-    date_to: Optional[str] = Query(None, description="End date (YYYY-MM-DD)"),
-    ip: Optional[str] = Query(None, description="IP address (exact match)"),
-    client: Optional[str] = Query(None, description="Client name (wildcard search)"),
-    qh: Optional[str] = Query(None, description="Domain (wildcard search)"),
-    qt: Optional[str] = Query(None, description="Query type (exact match)"),
-    cp: Optional[str] = Query(None, description="Client protocol (exact match)"),
-    is_filtered: Optional[bool] = Query(None, description="Filter status"),
-    filter_rule: Optional[str] = Query(None, description="Filter rule (wildcard search)"),
-    cached: Optional[bool] = Query(None, description="Cached status"),
-    sort_by: str = Query("timestamp", description="Column to sort by"),
-    sort_asc: bool = Query(False, description="Sort ascending"),
-    page: int = Query(1, ge=1, description="Page number"),
-    page_size: int = Query(DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE, description="Records per page"),
-):
-    """
-    Get raw log entries with full details.
-    Supports filtering by date range, IP, domain, query type, etc.
-    """
-    try:
-        result = query_raw_logs(
-            date_from=date_from,
-            date_to=date_to,
-            ip=ip,
-            client=client,
-            domain=qh,
-            query_type=qt,
-            client_protocol=cp,
-            is_filtered=is_filtered,
-            filter_rule=filter_rule,
-            cached=cached,
-            sort_by=sort_by,
-            sort_asc=sort_asc,
-            page=page,
-            page_size=page_size,
-        )
-        return result
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
 @app.get("/api/query-log-summary")
 async def get_query_log_summary(
     date: Optional[str] = Query(None, description="Date (exact match, YYYY-MM-DD)"),
     date_from: Optional[str] = Query(None, description="Start date (YYYY-MM-DD)"),
     date_to: Optional[str] = Query(None, description="End date (YYYY-MM-DD)"),
     qh: Optional[str] = Query(None, description="Domain (wildcard search)"),
-    qt: Optional[str] = Query(None, description="Query type (exact match)"),
+    qt: Optional[str] = Query(None, description="Query type (wildcard search)"),
     cp: Optional[str] = Query(None, description="Client protocol (exact match)"),
     ip: Optional[str] = Query(None, description="IP address (exact match)"),
     client: Optional[str] = Query(None, description="Client name (wildcard search)"),
     is_filtered: Optional[bool] = Query(None, description="Filter status"),
+    filter_rule: Optional[str] = Query(None, description="Filter rule (wildcard search)"),
     count_gte: Optional[int] = Query(None, description="Count >= value"),
     count_lte: Optional[int] = Query(None, description="Count <= value"),
     sort_by: str = Query("count", description="Column to sort by"),
@@ -178,7 +136,7 @@ async def get_query_log_summary(
     page_size: int = Query(DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE, description="Records per page"),
 ):
     """
-    Get client summary data (aggregated by Date/IP/Domain/Type/Protocol/Filtered).
+    Get client summary data (aggregated by Date/IP/Client/Domain/Type/Protocol/Filtered/FilterRule).
     """
     try:
         result = query_client_summary(
@@ -191,6 +149,7 @@ async def get_query_log_summary(
             query_type=qt,
             client_protocol=cp,
             is_filtered=is_filtered,
+            filter_rule=filter_rule,
             count_gte=count_gte,
             count_lte=count_lte,
             sort_by=sort_by,
@@ -205,33 +164,31 @@ async def get_query_log_summary(
 
 @app.get("/api/domain-summary")
 async def get_domain_summary(
+    date: Optional[str] = Query(None, description="Date (exact match, YYYY-MM-DD)"),
     qh: Optional[str] = Query(None, description="Domain (wildcard search)"),
     qt: Optional[str] = Query(None, description="Query type (exact match)"),
     cp: Optional[str] = Query(None, description="Client protocol (exact match)"),
     is_filtered: Optional[bool] = Query(None, description="Filter status"),
     count_gte: Optional[int] = Query(None, description="Count >= value"),
     count_lte: Optional[int] = Query(None, description="Count <= value"),
-    max_count_gte: Optional[int] = Query(None, description="Max count >= value"),
-    max_count_lte: Optional[int] = Query(None, description="Max count <= value"),
     sort_by: str = Query("count", description="Column to sort by"),
     sort_asc: bool = Query(False, description="Sort ascending"),
     page: int = Query(1, ge=1, description="Page number"),
     page_size: int = Query(DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE, description="Records per page"),
 ):
     """
-    Get domain summary data (aggregated by Domain/Type/Protocol/Filtered).
-    Includes total count and max count per day.
+    Get domain summary data (aggregated by Date/Domain/Type/Protocol/Filtered).
+    Each row represents a unique combination of these fields with a count.
     """
     try:
         result = query_domain_summary(
+            date=date,
             domain=qh,
             query_type=qt,
             client_protocol=cp,
             is_filtered=is_filtered,
             count_gte=count_gte,
             count_lte=count_lte,
-            max_count_gte=max_count_gte,
-            max_count_lte=max_count_lte,
             sort_by=sort_by,
             sort_asc=sort_asc,
             page=page,

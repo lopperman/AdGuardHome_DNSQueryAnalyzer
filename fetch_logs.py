@@ -16,7 +16,7 @@ from typing import Optional
 
 # Import database module
 from database import (
-    init_database, insert_log_entries, get_last_entry_timestamp,
+    init_database, insert_log_entries, condense_logs,
     update_client_names, set_metadata, get_metadata
 )
 
@@ -485,10 +485,15 @@ def fetch_log(log_name: str, log_config: dict, history: dict) -> tuple[int, Opti
 
     print(f"  Total new unique entries: {len(unique_entries)}")
 
-    # Insert into DuckDB
+    # Insert into DuckDB and condense
     if unique_entries:
         inserted = insert_log_entries(unique_entries)
         print(f"  Inserted {inserted} entries into database")
+
+        # Condense to aggregate duplicates
+        condense_result = condense_logs()
+        if condense_result['rows_before'] != condense_result['rows_after']:
+            print(f"  Condensed: {condense_result['rows_before']:,} -> {condense_result['rows_after']:,} rows")
 
     # Get latest timestamp
     latest_ts = unique_entries[-1].get(log_config["timestamp_field"]) if unique_entries else None

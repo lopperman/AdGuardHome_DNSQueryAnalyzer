@@ -39,32 +39,29 @@ def init_database():
     """Initialize the database schema."""
     conn = get_connection()
 
-    # Create the raw logs table (no explicit id - use rowid)
+    # Create the condensed query logs table
+    # Each row is unique by: date, ip, client, domain, query_type, client_protocol, upstream, is_filtered, filter_rule
     conn.execute("""
         CREATE TABLE IF NOT EXISTS query_logs (
-            timestamp TIMESTAMPTZ NOT NULL,
             date DATE NOT NULL,
             ip VARCHAR NOT NULL,
+            client VARCHAR NOT NULL DEFAULT '',
             domain VARCHAR NOT NULL,
             query_type VARCHAR,
-            query_class VARCHAR,
             client_protocol VARCHAR,
             upstream VARCHAR,
-            answer TEXT,
             is_filtered BOOLEAN DEFAULT FALSE,
             filter_rule TEXT,
-            filter_reason INTEGER,
-            elapsed_ns BIGINT,
-            cached BOOLEAN DEFAULT FALSE
+            count INTEGER NOT NULL DEFAULT 1
         )
     """)
 
     # Create indexes for common query patterns
     conn.execute("CREATE INDEX IF NOT EXISTS idx_logs_date ON query_logs(date)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_logs_timestamp ON query_logs(timestamp)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_logs_ip ON query_logs(ip)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_logs_domain ON query_logs(domain)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_logs_is_filtered ON query_logs(is_filtered)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_logs_query_type ON query_logs(query_type)")
 
     # Create a table to track last fetch timestamp
     conn.execute("""
@@ -148,9 +145,16 @@ def parse_timestamp(ts_str: str) -> tuple[datetime, str]:
         return datetime.now(), date_str
 
 
+def get_client_names_map(conn: duckdb.DuckDBPyConnection) -> dict[str, str]:
+    """Get a mapping of IP addresses to client names."""
+    results = conn.execute("SELECT ip, hostname FROM client_names").fetchall()
+    return {row[0]: row[1] for row in results}
+
+
 def insert_log_entries(entries: list[dict], conn: Optional[duckdb.DuckDBPyConnection] = None) -> int:
     """
-    Insert raw log entries into the database.
+    Insert log entries into the database (uncondensed, with count=1 each).
+    Call condense_logs() after to aggregate duplicates.
 
     Args:
         entries: List of log entry dictionaries from AdGuard
@@ -163,44 +167,179 @@ def insert_log_entries(entries: list[dict], conn: Optional[duckdb.DuckDBPyConnec
     if conn is None:
         conn = get_connection()
 
+    # Get client name mapping
+    client_map = get_client_names_map(conn)
+
     rows = []
     for entry in entries:
         ts_str = entry.get('T', '')
-        dt, date_str = parse_timestamp(ts_str)
+        _, date_str = parse_timestamp(ts_str)
 
         result = entry.get('Result', {})
         rules = result.get('Rules', [])
-        filter_rule = rules[0].get('Text', '') if rules else None
+        filter_rule = rules[0].get('Text', '') if rules else ''
+
+        ip = entry.get('IP', '')
+        client = client_map.get(ip, '')
 
         rows.append((
-            dt,                                    # timestamp
             date_str,                              # date
-            entry.get('IP', ''),                   # ip
+            ip,                                    # ip
+            client,                                # client
             entry.get('QH', ''),                   # domain
             entry.get('QT', ''),                   # query_type
-            entry.get('QC', ''),                   # query_class
             entry.get('CP', ''),                   # client_protocol
             entry.get('Upstream', ''),             # upstream
-            entry.get('Answer', ''),               # answer
             result.get('IsFiltered', False),       # is_filtered
             filter_rule,                           # filter_rule
-            result.get('Reason'),                  # filter_reason
-            entry.get('Elapsed'),                  # elapsed_ns
-            entry.get('Cached', False),            # cached
+            1,                                     # count
         ))
 
     if rows:
         conn.executemany("""
             INSERT INTO query_logs
-            (timestamp, date, ip, domain, query_type, query_class, client_protocol,
-             upstream, answer, is_filtered, filter_rule, filter_reason, elapsed_ns, cached)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            (date, ip, client, domain, query_type, client_protocol,
+             upstream, is_filtered, filter_rule, count)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, rows)
 
     if should_close:
         conn.close()
 
     return len(rows)
+
+
+def condense_logs(conn: Optional[duckdb.DuckDBPyConnection] = None) -> dict:
+    """
+    Condense query_logs by aggregating duplicate rows.
+
+    Groups by: date, ip, client, domain, query_type, client_protocol, upstream, is_filtered, filter_rule
+    Sums the count column for each group.
+
+    Returns:
+        dict with 'rows_before', 'rows_after', 'total_count' for verification
+    """
+    should_close = conn is None
+    if conn is None:
+        conn = get_connection()
+
+    # Get stats before
+    rows_before = conn.execute("SELECT COUNT(*) FROM query_logs").fetchone()[0]
+    total_count_before = conn.execute("SELECT SUM(count) FROM query_logs").fetchone()[0] or 0
+
+    # Create condensed version in a temp table
+    conn.execute("""
+        CREATE TEMP TABLE query_logs_condensed AS
+        SELECT
+            date,
+            ip,
+            client,
+            domain,
+            query_type,
+            client_protocol,
+            upstream,
+            is_filtered,
+            filter_rule,
+            SUM(count) as count
+        FROM query_logs
+        GROUP BY date, ip, client, domain, query_type, client_protocol, upstream, is_filtered, filter_rule
+    """)
+
+    # Replace original table
+    conn.execute("DELETE FROM query_logs")
+    conn.execute("""
+        INSERT INTO query_logs
+        SELECT * FROM query_logs_condensed
+    """)
+    conn.execute("DROP TABLE query_logs_condensed")
+
+    # Get stats after
+    rows_after = conn.execute("SELECT COUNT(*) FROM query_logs").fetchone()[0]
+    total_count_after = conn.execute("SELECT SUM(count) FROM query_logs").fetchone()[0] or 0
+
+    if should_close:
+        conn.close()
+
+    return {
+        'rows_before': rows_before,
+        'rows_after': rows_after,
+        'total_count_before': total_count_before,
+        'total_count_after': total_count_after,
+        'count_match': total_count_before == total_count_after,
+    }
+
+
+def migrate_to_condensed_schema():
+    """
+    One-time migration from old schema (with timestamp, answer, etc.) to new condensed schema.
+    """
+    conn = get_connection()
+
+    # Check if old schema exists (has 'timestamp' column)
+    columns = conn.execute("""
+        SELECT column_name FROM information_schema.columns
+        WHERE table_name = 'query_logs'
+    """).fetchall()
+    column_names = [c[0] for c in columns]
+
+    if 'timestamp' not in column_names:
+        print("Already using new schema, no migration needed.")
+        conn.close()
+        return
+
+    print("Migrating to condensed schema...")
+
+    # Get stats before
+    rows_before = conn.execute("SELECT COUNT(*) FROM query_logs").fetchone()[0]
+    print(f"Rows before migration: {rows_before:,}")
+
+    # Create new condensed table from old data, joining with client_names
+    conn.execute("""
+        CREATE TABLE query_logs_new AS
+        SELECT
+            q.date,
+            q.ip,
+            COALESCE(c.hostname, '') as client,
+            q.domain,
+            q.query_type,
+            q.client_protocol,
+            q.upstream,
+            q.is_filtered,
+            COALESCE(q.filter_rule, '') as filter_rule,
+            COUNT(*) as count
+        FROM query_logs q
+        LEFT JOIN client_names c ON q.ip = c.ip
+        GROUP BY q.date, q.ip, c.hostname, q.domain, q.query_type, q.client_protocol,
+                 q.upstream, q.is_filtered, q.filter_rule
+    """)
+
+    # Get stats for new table
+    rows_after = conn.execute("SELECT COUNT(*) FROM query_logs_new").fetchone()[0]
+    total_count = conn.execute("SELECT SUM(count) FROM query_logs_new").fetchone()[0]
+
+    print(f"Rows after condensing: {rows_after:,}")
+    print(f"Total count (should match rows_before): {total_count:,}")
+    print(f"Compression ratio: {rows_before/rows_after:.1f}x")
+
+    if total_count != rows_before:
+        print("WARNING: Count mismatch! Aborting migration.")
+        conn.execute("DROP TABLE query_logs_new")
+        conn.close()
+        return
+
+    # Drop old table and rename new one
+    conn.execute("DROP TABLE query_logs")
+    conn.execute("ALTER TABLE query_logs_new RENAME TO query_logs")
+
+    # Recreate indexes
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_logs_date ON query_logs(date)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_logs_ip ON query_logs(ip)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_logs_domain ON query_logs(domain)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_logs_is_filtered ON query_logs(is_filtered)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_logs_query_type ON query_logs(query_type)")
+
+    print("Migration complete!")
+    conn.close()
 
 
 def update_client_names(ip_to_hostname: dict[str, str]):
@@ -216,16 +355,16 @@ def update_client_names(ip_to_hostname: dict[str, str]):
     conn.close()
 
 
-def get_last_entry_timestamp() -> Optional[str]:
-    """Get the timestamp of the last log entry in the database."""
+def get_last_entry_date() -> Optional[str]:
+    """Get the most recent date in the database."""
     conn = get_connection()
     result = conn.execute("""
-        SELECT MAX(timestamp) as max_ts FROM query_logs
+        SELECT MAX(date) as max_date FROM query_logs
     """).fetchone()
     conn.close()
 
     if result and result[0]:
-        return result[0].isoformat()
+        return str(result[0])
     return None
 
 
@@ -252,144 +391,6 @@ def get_metadata(key: str) -> Optional[str]:
 # Query Functions for Web Service
 # ============================================================================
 
-def query_raw_logs(
-    date_from: Optional[str] = None,
-    date_to: Optional[str] = None,
-    ip: Optional[str] = None,
-    client: Optional[str] = None,
-    domain: Optional[str] = None,
-    query_type: Optional[str] = None,
-    client_protocol: Optional[str] = None,
-    is_filtered: Optional[bool] = None,
-    filter_rule: Optional[str] = None,
-    cached: Optional[bool] = None,
-    sort_by: str = 'timestamp',
-    sort_asc: bool = False,
-    page: int = 1,
-    page_size: int = 500,
-) -> dict:
-    """
-    Query raw log entries with filtering, sorting, and pagination.
-
-    Returns dict with: total, page, page_size, total_pages, records
-    """
-    conn = get_connection()
-
-    # Build WHERE clause
-    conditions = []
-    params = []
-
-    if date_from:
-        conditions.append("q.date >= ?")
-        params.append(date_from)
-    if date_to:
-        conditions.append("q.date <= ?")
-        params.append(date_to)
-    if ip:
-        conditions.append("LOWER(q.ip) = LOWER(?)")
-        params.append(ip)
-    if client:
-        conditions.append("LOWER(COALESCE(c.hostname, '')) LIKE LOWER(?)")
-        params.append(f"%{client}%")
-    if domain:
-        conditions.append("LOWER(q.domain) LIKE LOWER(?)")
-        params.append(f"%{domain}%")
-    if query_type:
-        conditions.append("LOWER(q.query_type) = LOWER(?)")
-        params.append(query_type)
-    if client_protocol:
-        conditions.append("LOWER(q.client_protocol) = LOWER(?)")
-        params.append(client_protocol)
-    if is_filtered is not None:
-        conditions.append("q.is_filtered = ?")
-        params.append(is_filtered)
-    if filter_rule:
-        conditions.append("LOWER(q.filter_rule) LIKE LOWER(?)")
-        params.append(f"%{filter_rule}%")
-    if cached is not None:
-        conditions.append("q.cached = ?")
-        params.append(cached)
-
-    where_clause = " AND ".join(conditions) if conditions else "1=1"
-
-    # Valid sort columns (with q. prefix for the joined query)
-    valid_sort = ['timestamp', 'date', 'ip', 'domain', 'query_type', 'client_protocol',
-                  'is_filtered', 'elapsed_ns', 'cached']
-    if sort_by not in valid_sort:
-        sort_by = 'timestamp'
-    sort_col = f'q.{sort_by}'
-
-    sort_dir = 'ASC' if sort_asc else 'DESC'
-
-    # Get total count
-    count_result = conn.execute(f"""
-        SELECT COUNT(*) FROM query_logs q
-        LEFT JOIN client_names c ON q.ip = c.ip
-        WHERE {where_clause}
-    """, params).fetchone()
-    total = count_result[0]
-
-    # Calculate pagination
-    total_pages = max(1, (total + page_size - 1) // page_size)
-    offset = (page - 1) * page_size
-
-    # Get paginated results with client names
-    results = conn.execute(f"""
-        SELECT
-            q.timestamp,
-            q.date,
-            q.ip,
-            COALESCE(c.hostname, '') as client,
-            q.domain,
-            q.query_type,
-            q.query_class,
-            q.client_protocol,
-            q.upstream,
-            q.answer,
-            q.is_filtered,
-            q.filter_rule,
-            q.filter_reason,
-            q.elapsed_ns,
-            q.cached
-        FROM query_logs q
-        LEFT JOIN client_names c ON q.ip = c.ip
-        WHERE {where_clause}
-        ORDER BY {sort_col} {sort_dir}
-        LIMIT ? OFFSET ?
-    """, params + [page_size, offset]).fetchall()
-
-    conn.close()
-
-    # Convert to list of dicts
-    records = []
-    for row in results:
-        records.append({
-            'timestamp': row[0].isoformat() if row[0] else '',
-            'date': str(row[1]) if row[1] else '',
-            'IP': row[2],
-            'client': row[3],
-            'QH': row[4],
-            'QT': row[5],
-            'QC': row[6],
-            'CP': row[7],
-            'upstream': row[8],
-            'answer': row[9],
-            'IsFiltered': row[10],
-            'filterRule': row[11],
-            'filterReason': row[12],
-            'elapsedNs': row[13],
-            'cached': row[14],
-        })
-
-    return {
-        'total': total,
-        'page': page,
-        'page_size': page_size,
-        'total_pages': total_pages,
-        'records': records,
-    }
-
-
 def query_client_summary(
     date: Optional[str] = None,
     date_from: Optional[str] = None,
@@ -400,6 +401,7 @@ def query_client_summary(
     query_type: Optional[str] = None,
     client_protocol: Optional[str] = None,
     is_filtered: Optional[bool] = None,
+    filter_rule: Optional[str] = None,
     count_gte: Optional[int] = None,
     count_lte: Optional[int] = None,
     sort_by: str = 'count',
@@ -408,100 +410,99 @@ def query_client_summary(
     page_size: int = 500,
 ) -> dict:
     """
-    Query client summary (aggregated by date/IP/domain/type/protocol/filtered).
+    Query client summary (aggregated by date/IP/client/domain/type/protocol/filtered/filter_rule).
+    Uses the condensed query_logs table which already has counts.
     """
     conn = get_connection()
 
-    # Build WHERE clause for raw data
+    # Build WHERE clause
     conditions = []
     params = []
 
     if date:
-        conditions.append("q.date = ?")
+        conditions.append("date = ?")
         params.append(date)
     if date_from:
-        conditions.append("q.date >= ?")
+        conditions.append("date >= ?")
         params.append(date_from)
     if date_to:
-        conditions.append("q.date <= ?")
+        conditions.append("date <= ?")
         params.append(date_to)
     if ip:
-        conditions.append("LOWER(q.ip) = LOWER(?)")
+        conditions.append("LOWER(ip) = LOWER(?)")
         params.append(ip)
+    if client:
+        conditions.append("LOWER(client) LIKE LOWER(?)")
+        params.append(f"%{client}%")
     if domain:
-        conditions.append("LOWER(q.domain) LIKE LOWER(?)")
+        conditions.append("LOWER(domain) LIKE LOWER(?)")
         params.append(f"%{domain}%")
     if query_type:
-        conditions.append("LOWER(q.query_type) = LOWER(?)")
-        params.append(query_type)
+        conditions.append("LOWER(query_type) LIKE LOWER(?)")
+        params.append(f"%{query_type}%")
     if client_protocol:
-        conditions.append("LOWER(q.client_protocol) = LOWER(?)")
+        conditions.append("LOWER(client_protocol) = LOWER(?)")
         params.append(client_protocol)
     if is_filtered is not None:
-        conditions.append("q.is_filtered = ?")
+        conditions.append("is_filtered = ?")
         params.append(is_filtered)
+    if filter_rule:
+        conditions.append("LOWER(filter_rule) LIKE LOWER(?)")
+        params.append(f"%{filter_rule}%")
 
     where_clause = " AND ".join(conditions) if conditions else "1=1"
 
-    # HAVING clause for count filters
+    # HAVING clause for count filters (applied after SUM)
     having_conditions = []
     having_params = []
     if count_gte is not None:
-        having_conditions.append("COUNT(*) >= ?")
+        having_conditions.append("SUM(count) >= ?")
         having_params.append(count_gte)
     if count_lte is not None:
-        having_conditions.append("COUNT(*) <= ?")
+        having_conditions.append("SUM(count) <= ?")
         having_params.append(count_lte)
-
-    # Client name filter needs to be in HAVING since it's joined (wildcard search)
-    if client:
-        having_conditions.append("LOWER(COALESCE(c.hostname, '')) LIKE LOWER(?)")
-        having_params.append(f"%{client}%")
 
     having_clause = " AND ".join(having_conditions) if having_conditions else "1=1"
 
-    # Valid sort columns (prefixed with table alias to avoid ambiguity)
+    # Sort mapping
     sort_map = {
-        'Date': 'q.date', 'IP': 'q.ip', 'client': 'client', 'QH': 'q.domain',
-        'QT': 'q.query_type', 'CP': 'q.client_protocol', 'IsFiltered': 'q.is_filtered',
-        'count': 'count'
+        'Date': 'date', 'IP': 'ip', 'client': 'client', 'QH': 'domain',
+        'QT': 'query_type', 'CP': 'client_protocol', 'IsFiltered': 'is_filtered',
+        'filterRule': 'filter_rule', 'count': 'total_count'
     }
-    sort_col = sort_map.get(sort_by, 'count')
+    sort_col = sort_map.get(sort_by, 'total_count')
     sort_dir = 'ASC' if sort_asc else 'DESC'
 
-    # Count total groups
-    count_query = f"""
-        SELECT COUNT(*) FROM (
-            SELECT 1
-            FROM query_logs q
-            LEFT JOIN client_names c ON q.ip = c.ip
-            WHERE {where_clause}
-            GROUP BY q.date, q.ip, c.hostname, q.domain, q.query_type, q.client_protocol, q.is_filtered
-            HAVING {having_clause}
-        ) subq
+    # Base query - aggregate by the display grouping
+    # Group by date/ip/client/domain/type/protocol/filtered/filter_rule
+    base_query = f"""
+        SELECT
+            date,
+            ip,
+            client,
+            domain,
+            query_type,
+            client_protocol,
+            is_filtered,
+            filter_rule,
+            SUM(count) as total_count
+        FROM query_logs
+        WHERE {where_clause}
+        GROUP BY date, ip, client, domain, query_type, client_protocol, is_filtered, filter_rule
+        HAVING {having_clause}
     """
-    count_result = conn.execute(count_query, params + having_params).fetchone()
+
+    # Count total groups
+    count_result = conn.execute(f"SELECT COUNT(*) FROM ({base_query}) subq",
+                                 params + having_params).fetchone()
     total = count_result[0]
 
     total_pages = max(1, (total + page_size - 1) // page_size)
     offset = (page - 1) * page_size
 
-    # Get aggregated results
+    # Get paginated results
     results = conn.execute(f"""
-        SELECT
-            q.date,
-            q.ip,
-            COALESCE(c.hostname, '') as client,
-            q.domain,
-            q.query_type,
-            q.client_protocol,
-            q.is_filtered,
-            COUNT(*) as count
-        FROM query_logs q
-        LEFT JOIN client_names c ON q.ip = c.ip
-        WHERE {where_clause}
-        GROUP BY q.date, q.ip, c.hostname, q.domain, q.query_type, q.client_protocol, q.is_filtered
-        HAVING {having_clause}
+        {base_query}
         ORDER BY {sort_col} {sort_dir}
         LIMIT ? OFFSET ?
     """, params + having_params + [page_size, offset]).fetchall()
@@ -518,7 +519,8 @@ def query_client_summary(
             'QT': row[4],
             'CP': row[5],
             'IsFiltered': row[6],
-            'count': row[7],
+            'filterRule': row[7] or '',
+            'count': row[8],
         })
 
     return {
@@ -531,22 +533,22 @@ def query_client_summary(
 
 
 def query_domain_summary(
+    date: Optional[str] = None,
     domain: Optional[str] = None,
     query_type: Optional[str] = None,
     client_protocol: Optional[str] = None,
     is_filtered: Optional[bool] = None,
     count_gte: Optional[int] = None,
     count_lte: Optional[int] = None,
-    max_count_gte: Optional[int] = None,
-    max_count_lte: Optional[int] = None,
     sort_by: str = 'count',
     sort_asc: bool = False,
     page: int = 1,
     page_size: int = 500,
 ) -> dict:
     """
-    Query domain summary (aggregated by domain/type/protocol/filtered).
-    Includes total count and max count per day.
+    Query domain summary (aggregated by date/domain/type/protocol/filtered).
+    Each row represents a unique combination of (Date, Domain, Type, Protocol, Filtered).
+    Uses the condensed query_logs table which already has counts.
     """
     conn = get_connection()
 
@@ -554,12 +556,15 @@ def query_domain_summary(
     conditions = []
     params = []
 
+    if date:
+        conditions.append("date = ?")
+        params.append(date)
     if domain:
         conditions.append("LOWER(domain) LIKE LOWER(?)")
         params.append(f"%{domain}%")
     if query_type:
-        conditions.append("LOWER(query_type) = LOWER(?)")
-        params.append(query_type)
+        conditions.append("LOWER(query_type) LIKE LOWER(?)")
+        params.append(f"%{query_type}%")
     if client_protocol:
         conditions.append("LOWER(client_protocol) = LOWER(?)")
         params.append(client_protocol)
@@ -569,55 +574,38 @@ def query_domain_summary(
 
     where_clause = " AND ".join(conditions) if conditions else "1=1"
 
-    # HAVING clause for count/maxCount filters
+    # HAVING clause for count filters (applied after SUM)
     having_conditions = []
     having_params = []
     if count_gte is not None:
-        having_conditions.append("SUM(daily_count) >= ?")
+        having_conditions.append("SUM(count) >= ?")
         having_params.append(count_gte)
     if count_lte is not None:
-        having_conditions.append("SUM(daily_count) <= ?")
+        having_conditions.append("SUM(count) <= ?")
         having_params.append(count_lte)
-    if max_count_gte is not None:
-        having_conditions.append("MAX(daily_count) >= ?")
-        having_params.append(max_count_gte)
-    if max_count_lte is not None:
-        having_conditions.append("MAX(daily_count) <= ?")
-        having_params.append(max_count_lte)
 
     having_clause = " AND ".join(having_conditions) if having_conditions else "1=1"
 
     # Sort mapping
     sort_map = {
-        'QH': 'domain', 'QT': 'query_type', 'CP': 'client_protocol',
-        'IsFiltered': 'is_filtered', 'count': 'total_count', 'maxCount': 'max_count'
+        'Date': 'date', 'QH': 'domain', 'QT': 'query_type', 'CP': 'client_protocol',
+        'IsFiltered': 'is_filtered', 'count': 'total_count'
     }
     sort_col = sort_map.get(sort_by, 'total_count')
     sort_dir = 'ASC' if sort_asc else 'DESC'
 
-    # Use CTE to first get daily counts, then aggregate
+    # Query aggregated by date/domain/type/protocol/filtered
     base_query = f"""
-        WITH daily_counts AS (
-            SELECT
-                domain,
-                query_type,
-                client_protocol,
-                is_filtered,
-                date,
-                COUNT(*) as daily_count
-            FROM query_logs
-            WHERE {where_clause}
-            GROUP BY domain, query_type, client_protocol, is_filtered, date
-        )
         SELECT
+            date,
             domain,
             query_type,
             client_protocol,
             is_filtered,
-            SUM(daily_count) as total_count,
-            MAX(daily_count) as max_count
-        FROM daily_counts
-        GROUP BY domain, query_type, client_protocol, is_filtered
+            SUM(count) as total_count
+        FROM query_logs
+        WHERE {where_clause}
+        GROUP BY date, domain, query_type, client_protocol, is_filtered
         HAVING {having_clause}
     """
 
@@ -641,12 +629,12 @@ def query_domain_summary(
     records = []
     for row in results:
         records.append({
-            'QH': row[0],
-            'QT': row[1],
-            'CP': row[2],
-            'IsFiltered': row[3],
-            'count': row[4],
-            'maxCount': row[5],
+            'Date': str(row[0]) if row[0] else '',
+            'QH': row[1],
+            'QT': row[2],
+            'CP': row[3],
+            'IsFiltered': row[4],
+            'count': row[5],
         })
 
     return {
@@ -674,21 +662,19 @@ def query_base_domain_summary(
 ) -> dict:
     """
     Query base domain summary (aggregated by base domain/type/protocol/filtered).
+    Uses the condensed query_logs table which already has counts.
     """
     conn = get_connection()
 
     # DuckDB doesn't have our extract_base_domain function, so we need to do this differently
-    # We'll create a temporary table or use a subquery with the base domain calculation
-
-    # For now, let's fetch domains and compute base domain in Python
-    # This is less efficient but works correctly
+    # Fetch domains and compute base domain in Python
 
     conditions = []
     params = []
 
     if query_type:
-        conditions.append("LOWER(query_type) = LOWER(?)")
-        params.append(query_type)
+        conditions.append("LOWER(query_type) LIKE LOWER(?)")
+        params.append(f"%{query_type}%")
     if client_protocol:
         conditions.append("LOWER(client_protocol) = LOWER(?)")
         params.append(client_protocol)
@@ -698,7 +684,7 @@ def query_base_domain_summary(
 
     where_clause = " AND ".join(conditions) if conditions else "1=1"
 
-    # Get daily counts per domain first
+    # Get daily counts per domain (using SUM since data is already condensed)
     results = conn.execute(f"""
         SELECT
             domain,
@@ -706,7 +692,7 @@ def query_base_domain_summary(
             client_protocol,
             is_filtered,
             date,
-            COUNT(*) as daily_count
+            SUM(count) as daily_count
         FROM query_logs
         WHERE {where_clause}
         GROUP BY domain, query_type, client_protocol, is_filtered, date
@@ -787,9 +773,13 @@ def get_database_stats() -> dict:
 
     stats = {}
 
-    # Total log entries
+    # Total queries (sum of counts from condensed table)
+    result = conn.execute("SELECT SUM(count) FROM query_logs").fetchone()
+    stats['total_queries'] = result[0] or 0
+
+    # Total rows (condensed)
     result = conn.execute("SELECT COUNT(*) FROM query_logs").fetchone()
-    stats['total_entries'] = result[0]
+    stats['total_rows'] = result[0]
 
     # Date range
     result = conn.execute("SELECT MIN(date), MAX(date) FROM query_logs").fetchone()
