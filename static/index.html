@@ -233,7 +233,8 @@
         }
         .action-cell {
             text-align: center;
-            width: 40px;
+            width: 70px;
+            white-space: nowrap;
         }
         .action-btn {
             background: none;
@@ -332,6 +333,71 @@
         }
         .modal-close:hover {
             background: #5a6268;
+        }
+        /* Research modal styles */
+        .research-btn {
+            background: none;
+            border: none;
+            cursor: pointer;
+            font-size: 16px;
+            padding: 2px 6px;
+            border-radius: 4px;
+            transition: background 0.2s;
+        }
+        .research-btn:hover {
+            background: #e0e0e0;
+        }
+        .research-links {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .research-link {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 12px 16px;
+            text-decoration: none;
+            color: #333;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            transition: background 0.2s, border-color 0.2s;
+        }
+        .research-link:hover {
+            background: #f0f7ff;
+            border-color: #4a90d9;
+        }
+        .research-link .link-icon {
+            font-size: 20px;
+            width: 28px;
+            text-align: center;
+        }
+        .research-link .link-info {
+            flex: 1;
+        }
+        .research-link .link-title {
+            font-weight: 600;
+            display: block;
+        }
+        .research-link .link-desc {
+            font-size: 12px;
+            color: #666;
+            margin-top: 2px;
+        }
+        .research-category {
+            margin-bottom: 12px;
+        }
+        .research-category:last-child {
+            margin-bottom: 0;
+        }
+        .category-label {
+            font-size: 11px;
+            font-weight: 600;
+            color: #888;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 6px;
+            padding-left: 4px;
         }
         /* Ignored domains table styles */
         .ignored-domains-header {
@@ -601,6 +667,7 @@
                 <table id="domain-table">
                     <thead>
                         <tr>
+                            <th class="action-cell"></th>
                             <th onclick="sortTable('domain', 'Date')">Date <span class="sort-indicator">&#9650;</span></th>
                             <th onclick="sortTable('domain', 'QH')">Domain (QH) <span class="sort-indicator">&#9650;</span></th>
                             <th onclick="sortTable('domain', 'QT')">Type <span class="sort-indicator">&#9650;</span></th>
@@ -672,6 +739,7 @@
                 <table id="baseDomain-table">
                     <thead>
                         <tr>
+                            <th class="action-cell"></th>
                             <th onclick="sortTable('baseDomain', 'QH')">Base Domain (QH) <span class="sort-indicator">&#9650;</span></th>
                             <th onclick="sortTable('baseDomain', 'QT')">Type <span class="sort-indicator">&#9650;</span></th>
                             <th onclick="sortTable('baseDomain', 'CP')">Protocol <span class="sort-indicator">&#9650;</span></th>
@@ -720,6 +788,7 @@
                 <table id="ignored-table">
                     <thead>
                         <tr>
+                            <th class="action-cell"></th>
                             <th>Domain</th>
                             <th>Notes</th>
                             <th>Added</th>
@@ -754,6 +823,20 @@
                 </button>
             </div>
             <button class="modal-close" onclick="closeModal()">Cancel</button>
+        </div>
+    </div>
+
+    <!-- Research Modal -->
+    <div class="modal-overlay" id="researchModal">
+        <div class="modal">
+            <h3>Research Domain</h3>
+            <div class="modal-context">
+                <strong>Domain:</strong> <span id="research-domain"></span>
+            </div>
+            <div class="research-links" id="researchLinks">
+                <!-- Links populated by JavaScript -->
+            </div>
+            <button class="modal-close" onclick="closeResearchModal()">Close</button>
         </div>
     </div>
 
@@ -1052,8 +1135,8 @@
             const columns = {
                 // Action column (index 0) is not sortable, so we start from index 1
                 client: ['_action', 'Date', 'IP', 'client', 'QH', 'QT', 'CP', 'IsFiltered', 'filterRule', 'count'],
-                domain: ['Date', 'QH', 'QT', 'CP', 'IsFiltered', 'count'],
-                baseDomain: ['QH', 'QT', 'CP', 'IsFiltered', 'count', 'maxCount']
+                domain: ['_action', 'Date', 'QH', 'QT', 'CP', 'IsFiltered', 'count'],
+                baseDomain: ['_action', 'QH', 'QT', 'CP', 'IsFiltered', 'count', 'maxCount']
             };
             return columns[tabName].indexOf(column);
         }
@@ -1066,7 +1149,10 @@
                 data.forEach((row, index) => {
                     const tr = document.createElement('tr');
                     tr.innerHTML = `
-                        <td class="action-cell"><button class="action-btn" onclick="openActionModal(${index})" title="Actions">&#9881;</button></td>
+                        <td class="action-cell">
+                            <button class="action-btn" onclick="openActionModal(${index})" title="Actions">&#9881;</button>
+                            <button class="research-btn" onclick="openResearchModal('${escapeHtml(row.QH || '').replace(/'/g, "\\'")}')" title="Research Domain">&#128269;</button>
+                        </td>
                         <td>${escapeHtml(row.Date || '')}</td>
                         <td>${escapeHtml(row.IP || '')}</td>
                         <td>${escapeHtml(row.client || '')}</td>
@@ -1083,6 +1169,9 @@
                 data.forEach(row => {
                     const tr = document.createElement('tr');
                     tr.innerHTML = `
+                        <td class="action-cell">
+                            <button class="research-btn" onclick="openResearchModal('${escapeHtml(row.QH || '').replace(/'/g, "\\'")}')" title="Research Domain">&#128269;</button>
+                        </td>
                         <td>${escapeHtml(row.Date || '')}</td>
                         <td class="domain-cell" title="${escapeHtml(row.QH || '')}">${escapeHtml(row.QH || '')}</td>
                         <td>${escapeHtml(row.QT || '')}</td>
@@ -1097,6 +1186,9 @@
                 data.forEach(row => {
                     const tr = document.createElement('tr');
                     tr.innerHTML = `
+                        <td class="action-cell">
+                            <button class="research-btn" onclick="openResearchModal('${escapeHtml(row.QH || '').replace(/'/g, "\\'")}')" title="Research Domain">&#128269;</button>
+                        </td>
                         <td class="domain-cell" title="${escapeHtml(row.QH || '')}">${escapeHtml(row.QH || '')}</td>
                         <td>${escapeHtml(row.QT || '')}</td>
                         <td>${escapeHtml(row.CP || '')}</td>
@@ -1137,6 +1229,111 @@
         function closeModal() {
             document.getElementById('actionModal').classList.remove('active');
             selectedRow = null;
+        }
+
+        // Research modal functions
+        const researchServices = [
+            // Privacy & Tracker Research
+            {
+                name: 'Blacklight',
+                icon: '👁️',
+                desc: 'The Markup\'s privacy inspector - shows trackers, cookies, fingerprinting',
+                category: 'privacy',
+                url: (domain) => `https://themarkup.org/blacklight?url=${encodeURIComponent(domain)}`
+            },
+            {
+                name: 'BuiltWith',
+                icon: '🔧',
+                desc: 'See tracking scripts, analytics, and technologies used',
+                category: 'privacy',
+                url: (domain) => `https://builtwith.com/${encodeURIComponent(domain)}`
+            },
+            {
+                name: 'WhoTracksMe',
+                icon: '👣',
+                desc: 'Ghostery\'s tracker database - company info and prevalence',
+                category: 'privacy',
+                url: (domain) => `https://whotracks.me/websites/${encodeURIComponent(domain)}.html`
+            },
+            // Security Research
+            {
+                name: 'VirusTotal',
+                icon: '🛡️',
+                desc: 'Security analysis from 70+ vendors',
+                category: 'security',
+                url: (domain) => `https://www.virustotal.com/gui/domain/${encodeURIComponent(domain)}`
+            },
+            {
+                name: 'URLhaus',
+                icon: '🦠',
+                desc: 'Malware URL database by abuse.ch',
+                category: 'security',
+                url: (domain) => `https://urlhaus.abuse.ch/browse.php?search=${encodeURIComponent(domain)}`
+            },
+            {
+                name: 'Google Safe Browsing',
+                icon: '🔒',
+                desc: 'Google transparency report for site safety',
+                category: 'security',
+                url: (domain) => `https://transparencyreport.google.com/safe-browsing/search?url=${encodeURIComponent(domain)}`
+            },
+            // Domain Info
+            {
+                name: 'WHOIS Lookup',
+                icon: '📝',
+                desc: 'Domain registration and ownership info',
+                category: 'info',
+                url: (domain) => `https://www.whois.com/whois/${encodeURIComponent(domain)}`
+            },
+            {
+                name: 'DNSlytics',
+                icon: '🌐',
+                desc: 'DNS records, related domains, hosting info',
+                category: 'info',
+                url: (domain) => `https://dnslytics.com/domain/${encodeURIComponent(domain)}`
+            }
+        ];
+
+        function openResearchModal(domain) {
+            if (!domain) return;
+
+            document.getElementById('research-domain').textContent = domain;
+
+            const categories = {
+                privacy: { label: 'Privacy & Trackers', services: [] },
+                security: { label: 'Security', services: [] },
+                info: { label: 'Domain Info', services: [] }
+            };
+
+            researchServices.forEach(service => {
+                if (categories[service.category]) {
+                    categories[service.category].services.push(service);
+                }
+            });
+
+            const linksContainer = document.getElementById('researchLinks');
+            linksContainer.innerHTML = Object.values(categories)
+                .filter(cat => cat.services.length > 0)
+                .map(cat => `
+                    <div class="research-category">
+                        <div class="category-label">${cat.label}</div>
+                        ${cat.services.map(service => `
+                            <a href="${service.url(domain)}" target="_blank" rel="noopener noreferrer" class="research-link">
+                                <span class="link-icon">${service.icon}</span>
+                                <span class="link-info">
+                                    <span class="link-title">${service.name}</span>
+                                    <span class="link-desc">${service.desc}</span>
+                                </span>
+                            </a>
+                        `).join('')}
+                    </div>
+                `).join('');
+
+            document.getElementById('researchModal').classList.add('active');
+        }
+
+        function closeResearchModal() {
+            document.getElementById('researchModal').classList.remove('active');
         }
 
         async function deleteLogsBeforeDate() {
@@ -1276,8 +1473,12 @@
                 const deleteLogsBtn = hasLogs
                     ? `<button class="delete-btn" onclick="deleteLogsForIgnoredDomain('${escapeHtml(row.domain || '')}')">Del Logs</button>`
                     : `<button class="delete-btn" disabled>No Logs</button>`;
+                const escapedDomain = escapeHtml(row.domain || '').replace(/'/g, "\\'");
 
                 tr.innerHTML = `
+                    <td class="action-cell">
+                        <button class="research-btn" onclick="openResearchModal('${escapedDomain}')" title="Research Domain">&#128269;</button>
+                    </td>
                     <td class="domain-cell" title="${escapeHtml(row.domain || '')}">${escapeHtml(row.domain || '')}</td>
                     <td>${escapeHtml(row.notes || '')}</td>
                     <td>${addedDate}</td>
